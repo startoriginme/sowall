@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, LogIn, UserPlus, Key, Info, Mail, User, BookOpen, AlertCircle, Sparkles, Check, Disc, MessageSquare, LogOut, ChevronRight, Upload } from "lucide-react";
 import { UserSessionData, Post } from "../types";
 import { formatRelativeTime } from "../utils";
+import { supabase } from "../lib/supabase";
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -41,7 +42,7 @@ export default function AccountModal({
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
 
   // Login Fields
-  const [loginIdentifier, setLoginIdentifier] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -58,8 +59,26 @@ export default function AccountModal({
 
   // Email Verification System State
   const [resendingVerification, setResendingVerification] = useState(false);
+  const [isEmailVerified, setIsEmailVerified] = useState(false);
 
-  React.useEffect(() => {
+  // Profile-specific posts lists & loaders
+  const [profilePosts, setProfilePosts] = useState<Post[]>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"settings" | "posts">("settings");
+
+  // Load email verification status
+  useEffect(() => {
+    const checkVerification = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsEmailVerified(user?.email_confirmed_at !== null);
+    };
+    if (currentUser) {
+      checkVerification();
+    }
+  }, [currentUser]);
+
+  // Update edit fields when currentUser changes
+  useEffect(() => {
     if (currentUser && isOpen) {
       setEditName(currentUser.display_name || "");
       setEditBio(currentUser.bio || "");
@@ -69,36 +88,20 @@ export default function AccountModal({
     }
   }, [currentUser, isOpen]);
 
-  React.useEffect(() => {
-    if (isOpen && localStorage.getItem("token")) {
-      fetch("/api/auth/me", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` }
-      })
-      .then(res => res.json())
-      .then(json => {
-        if (json.success && json.user) {
-          onAuthSuccess(json.user, false);
-        }
-      })
-      .catch(err => console.error("Failed background profile refresh:", err));
-    }
-  }, [isOpen]);
-
-  // Profile-specific posts lists & loaders
-  const [profilePosts, setProfilePosts] = useState<Post[]>([]);
-  const [postsLoading, setPostsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"settings" | "posts">("settings");
-
   // Fetch current user posts list for reference
   const loadMyPosts = async () => {
     if (!currentUser) return;
     try {
       setPostsLoading(true);
-      const res = await fetch(`/api/profiles/${encodeURIComponent(currentUser.username)}`);
-      const json = await res.json();
-      if (json.success) {
-        setProfilePosts(json.profile.posts || []);
-      }
+      
+      const { data: posts, error } = await supabase
+        .from("posts")
+        .select("*")
+        .eq("user_id", currentUser.id)
+        .order("created_at", { ascending: false });
+      
+      if (error) throw error;
+      setProfilePosts(posts || []);
     } catch (e) {
       console.error("Failed to load user posts", e);
     } finally {
@@ -119,79 +122,129 @@ export default function AccountModal({
       return;
     }
 
+    if (regPassword.length < 6) {
+      setRegError("Password must be at least 6 characters long.");
+      return;
+    }
+
     try {
       setRegLoading(true);
       setRegError(null);
       setRegSuccess(null);
 
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: regName.trim(),
-          username: cleanUsername,
-          email: regEmail.trim(),
-          password: regPassword,
-        }),
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: regEmail.trim(),
+        password: regPassword,
+        options: {
+          data: {
+            display_name: regName.trim(),
+            username: cleanUsername,
+          }
+        }
       });
-      const data = await res.json();
-      if (data.success) {
-        setRegSuccess(data.message || "Successfully registered!");
-        // Clear forms
+
+      if (authError) throw authError;
+
+      if (authData.user) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .insert({
+            id: authData.user.id,
+            username: cleanUsername,
+            display_name: regName.trim(),
+            email: regEmail.trim(),
+            bio: "",
+            discord: "",
+          });
+
+        if (profileError) {
+          console.error("Profile creation error:", profileError);
+          setRegError("Account created but profile setup failed. Please try logging in.");
+          return;
+        }
+
+        setRegSuccess("Successfully registered! Please check your email to verify your account.");
+        
         setRegName("");
         setRegUsername("");
         setRegEmail("");
         setRegPassword("");
-        // Auto go to login tab
+        
         setTimeout(() => {
           setAuthView("login");
           setRegSuccess(null);
         }, 2000);
-      } else {
-        setRegError(data.error || "Failed to register.");
       }
-    } catch (err) {
-      setRegError("Error submitting registration details.");
+    } catch (err: any) {
+      console.error("Registration error:", err);
+      setRegError(err.message || "Failed to register.");
     } finally {
       setRegLoading(false);
     }
   };
 
-  // Handle Log In
+  // Handle Log In — ТОЛЬКО ПО EMAIL
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginIdentifier || !loginPassword) {
-      setLoginError("Please enter your login and password.");
+    if (!loginEmail || !loginPassword) {
+      setLoginError("Please enter your email and password.");
       return;
     }
+    
     try {
       setLoginLoading(true);
       setLoginError(null);
 
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          usernameOrEmail: loginIdentifier.trim(),
-          password: loginPassword,
-        }),
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword,
       });
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem("token", data.session.access_token);
-        localStorage.setItem("userId", data.user.id);
-        onAuthSuccess(data.user);
-        
-        // Load initial edit fields
-        setEditName(data.user.display_name || "");
-        setEditBio(data.user.bio || "");
-        setEditDiscord(data.user.discord || "");
-        setEditAvatarUrl(data.user.avatar_url || "");
-        setActiveTab("settings");
-      } else {
-        setLoginError(data.error || "Incorrect login or password.");
+
+      if (authError) {
+        if (authError.message.includes("Email not confirmed")) {
+          setLoginError("Please verify your email before logging in. Check your inbox and spam folder.");
+        } else {
+          setLoginError("Invalid email or password.");
+        }
+        return;
       }
-    } catch (err) {
+
+      if (authData.user) {
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", authData.user.id)
+          .maybeSingle();
+
+        if (profileError || !profile) {
+          setLoginError("Profile not found. Please contact support.");
+          return;
+        }
+
+        const userData: UserSessionData = {
+          id: profile.id,
+          username: profile.username,
+          display_name: profile.display_name,
+          bio: profile.bio,
+          discord: profile.discord,
+          avatar_url: profile.avatar_url,
+          is_verified: profile.is_verified,
+          created_at: profile.created_at,
+          email: authData.user.email
+        };
+
+        localStorage.setItem("token", authData.session?.access_token || "");
+        localStorage.setItem("userId", authData.user.id);
+        onAuthSuccess(userData);
+        
+        setEditName(userData.display_name || "");
+        setEditBio(userData.bio || "");
+        setEditDiscord(userData.discord || "");
+        setEditAvatarUrl(userData.avatar_url || "");
+        setActiveTab("settings");
+      }
+    } catch (err: any) {
+      console.error("Login error:", err);
       setLoginError("A network error occurred during login.");
     } finally {
       setLoginLoading(false);
@@ -206,21 +259,18 @@ export default function AccountModal({
     }
     try {
       setResendingVerification(true);
-      const res = await fetch("/api/auth/resend-verification", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email: currentUser.email }),
+      
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: currentUser.email,
       });
-      const data = await res.json();
-      if (data.success) {
-        alert("Verification email resent successfully! Please check your inbox (and spam folder) for the verification link.");
-      } else {
-        alert(data.error || "Failed to resend verification email.");
-      }
-    } catch (e) {
-      alert("A connections/network failure occurred while trying to send verification email.");
+      
+      if (error) throw error;
+      
+      alert("Verification email resent successfully! Please check your inbox (and spam folder) for the verification link.");
+    } catch (e: any) {
+      console.error("Resend error:", e);
+      alert(e.message || "Failed to resend verification email. Please try again later.");
     } finally {
       setResendingVerification(false);
     }
@@ -229,42 +279,66 @@ export default function AccountModal({
   // Handle Edit profile
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser) return;
+    
     try {
       setEditLoading(true);
       setEditError(null);
       setEditSuccess(false);
 
-      const res = await fetch("/api/profile/update", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-        body: JSON.stringify({
+      if (editUsername !== currentUser.username) {
+        const { data: existingUser, error: checkError } = await supabase
+          .from("profiles")
+          .select("username")
+          .eq("username", editUsername)
+          .neq("id", currentUser.id)
+          .maybeSingle();
+        
+        if (checkError) throw checkError;
+        if (existingUser) {
+          setEditError("Username is already taken.");
+          setEditLoading(false);
+          return;
+        }
+      }
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
           display_name: editName,
           bio: editBio,
           discord: editDiscord,
-          avatar_url: editAvatarUrl || undefined,
+          avatar_url: editAvatarUrl || null,
           username: editUsername,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setEditSuccess(true);
-        // Refresh token stats
-        const resMe = await fetch("/api/auth/me", {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` }
-        });
-        const jsonMe = await resMe.json();
-        if (jsonMe.success) {
-          onAuthSuccess(jsonMe.user, false);
-        }
-        setTimeout(() => setEditSuccess(false), 3000);
-      } else {
-        setEditError(data.error || "Failed to update profile settings.");
+        })
+        .eq("id", currentUser.id);
+
+      if (updateError) throw updateError;
+
+      setEditSuccess(true);
+      
+      const { data: freshProfile, error: freshError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", currentUser.id)
+        .maybeSingle();
+
+      if (!freshError && freshProfile) {
+        const updatedUser: UserSessionData = {
+          ...currentUser,
+          display_name: freshProfile.display_name,
+          bio: freshProfile.bio,
+          discord: freshProfile.discord,
+          avatar_url: freshProfile.avatar_url,
+          username: freshProfile.username,
+        };
+        onAuthSuccess(updatedUser, false);
       }
-    } catch (err) {
-      setEditError("Connection error.");
+      
+      setTimeout(() => setEditSuccess(false), 3000);
+    } catch (err: any) {
+      console.error("Profile update error:", err);
+      setEditError(err.message || "Failed to update profile settings.");
     } finally {
       setEditLoading(false);
     }
@@ -274,22 +348,18 @@ export default function AccountModal({
   const handleDeleteOwnPost = async (postId: string) => {
     if (!window.confirm("Are you sure you want to delete this post?")) return;
     try {
-      const res = await fetch(`/api/posts/${postId}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setProfilePosts(profilePosts.filter(p => p.id !== postId));
-        if (onPostDeleted) onPostDeleted();
-      } else {
-        alert(data.error || "Failed to delete post");
-      }
+      const { error } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", postId);
+      
+      if (error) throw error;
+      
+      setProfilePosts(profilePosts.filter(p => p.id !== postId));
+      if (onPostDeleted) onPostDeleted();
     } catch (e) {
-      alert("Error sending delete request.");
+      console.error("Delete error:", e);
+      alert("Error deleting post.");
     }
   };
 
@@ -308,6 +378,60 @@ export default function AccountModal({
       setEditError(null);
     };
     reader.readAsDataURL(file);
+  };
+
+  // Handle resend verification from login screen
+  const handleResendFromLogin = async () => {
+    if (!loginEmail.trim()) {
+      alert("Please enter your email first to request a resend.");
+      return;
+    }
+    
+    try {
+      setResendingVerification(true);
+      
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: loginEmail.trim(),
+      });
+      
+      if (error) throw error;
+      
+      alert("Verification link resent! Please check your inbox and spam folder.");
+    } catch (e: any) {
+      console.error("Resend error:", e);
+      alert(e.message || "Failed to resend verification email.");
+    } finally {
+      setResendingVerification(false);
+    }
+  };
+
+  // Компонент для отображения статуса верификации
+  const VerificationStatus = () => {
+    if (isEmailVerified) {
+      return (
+        <span className="text-[9px] bg-green-500/25 text-green-300 px-2.5 py-0.5 rounded-full border border-green-500/40 flex items-center space-x-1 font-semibold">
+          <Check className="w-2.5 h-2.5 text-green-400" />
+          <span>Verified Email</span>
+        </span>
+      );
+    }
+    
+    return (
+      <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+        <span className="text-[9px] bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-semibold">
+          Unverified Email
+        </span>
+        <button
+          type="button"
+          onClick={handleResendVerification}
+          disabled={resendingVerification}
+          className="text-[9px] bg-purple-900/40 hover:bg-purple-800 text-purple-200 border border-purple-800/40 px-2 py-0.5 rounded-full transition-colors font-semibold cursor-pointer"
+        >
+          {resendingVerification ? "Sending..." : "Verify now"}
+        </button>
+      </div>
+    );
   };
 
   return (
@@ -374,18 +498,18 @@ export default function AccountModal({
                   </button>
                 </div>
 
-                {/* LOGIN FORM */}
+                {/* LOGIN FORM - ТОЛЬКО ПО EMAIL */}
                 {authView === "login" ? (
                   <form onSubmit={handleLogin} className="space-y-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">Username or Email</label>
+                      <label className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">Email Address</label>
                       <input
-                        id="login-ident-input"
-                        type="text"
+                        id="login-email-input"
+                        type="email"
                         required
-                        placeholder="Your unique handle or email address"
-                        value={loginIdentifier}
-                        onChange={(e) => setLoginIdentifier(e.target.value)}
+                        placeholder="your@email.com"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
                         className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none transition-all"
                       />
                     </div>
@@ -412,34 +536,11 @@ export default function AccountModal({
                         {(loginError.toLowerCase().includes("verify") || loginError.toLowerCase().includes("confirm")) && (
                           <button
                             type="button"
-                            onClick={async () => {
-                              if (!loginIdentifier.trim()) {
-                                alert("Please enter your username/email first in the login fields to request a resend.");
-                                return;
-                              }
-                              try {
-                                setResendingVerification(true);
-                                const res = await fetch("/api/auth/resend-verification", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ username: loginIdentifier.trim() })
-                                });
-                                const data = await res.json();
-                                if (data.success) {
-                                  alert("Verification link resent! Please check your inbox and spam folder.");
-                                } else {
-                                  alert(data.error || "Failed to resend verification email.");
-                                }
-                              } catch (e) {
-                                alert("Failed to connect to verification servers.");
-                              } finally {
-                                setResendingVerification(false);
-                              }
-                            }}
+                            onClick={handleResendFromLogin}
                             disabled={resendingVerification}
                             className="text-[11px] text-purple-400 hover:text-purple-300 underline block cursor-pointer transition-colors text-left font-medium"
                           >
-                            {resendingVerification ? "Sending email..." : "Didn't receive verified key? Click to resend verification email"}
+                            {resendingVerification ? "Sending email..." : "Didn't receive verification email? Click to resend"}
                           </button>
                         )}
                       </div>
@@ -534,7 +635,7 @@ export default function AccountModal({
                 )}
               </div>
             ) : (
-              /* LOGGED IN ACCOUNT CONTROL PANEL */
+              /* LOGGED IN ACCOUNT CONTROL PANEL (без изменений) */
               <div className="flex-1 flex flex-col min-h-0">
                 {/* Tabs switcher header */}
                 <div className="grid grid-cols-2 border-b border-slate-900 p-2 shrink-0 bg-[#0c0a10]/50">
@@ -559,7 +660,7 @@ export default function AccountModal({
                         : "text-slate-500 hover:text-slate-300"
                     }`}
                   >
-                    My Posts ({profilePosts.length || ""})
+                    My Posts ({profilePosts.length || "0"})
                   </button>
                 </div>
 
@@ -578,26 +679,7 @@ export default function AccountModal({
                           <h4 className="text-slate-200 font-bold text-sm truncate">{currentUser.display_name || currentUser.username}</h4>
                           <p className="text-[10px] text-purple-400 font-mono">@{currentUser.username}</p>
                           <div className="flex items-center space-x-1.5 mt-1.5 flex-wrap gap-y-1">
-                            {currentUser.email_verified ? (
-                              <span className="text-[9px] bg-green-500/25 text-green-300 px-2.5 py-0.5 rounded-full border border-green-500/40 flex items-center space-x-1 font-semibold">
-                                <Check className="w-2.5 h-2.5 text-green-400" />
-                                <span>Verified Email</span>
-                              </span>
-                            ) : (
-                              <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
-                                <span className="text-[9px] bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-semibold">
-                                  Unverified Email
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={handleResendVerification}
-                                  disabled={resendingVerification}
-                                  className="text-[9px] bg-purple-900/40 hover:bg-purple-800 text-purple-200 border border-purple-800/40 px-2 py-0.5 rounded-full transition-colors font-semibold cursor-pointer"
-                                >
-                                  {resendingVerification ? "Sending..." : "Verify now"}
-                                </button>
-                              </div>
-                            )}
+                            <VerificationStatus />
                           </div>
                         </div>
                       </div>
@@ -714,7 +796,6 @@ export default function AccountModal({
                       ) : (
                         <div className="space-y-3">
                           {profilePosts.map((p) => {
-                            // Extract main content for preview
                             const separator = "\n\n---STARTORIGIN_METADATA_JSON---";
                             const mainTxt = p.content.split(separator)[0];
                             return (
@@ -727,6 +808,13 @@ export default function AccountModal({
                                     {mainTxt}
                                   </p>
                                 </div>
+                                <button
+                                  onClick={() => handleDeleteOwnPost(p.id)}
+                                  className="text-red-400/70 hover:text-red-400 transition-colors cursor-pointer shrink-0"
+                                  title="Delete post"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             );
                           })}

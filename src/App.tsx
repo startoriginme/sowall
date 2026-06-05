@@ -52,26 +52,68 @@ export default function App() {
       setLoadingActivePost(true);
       setActivePostError(null);
       
-      const { data: post, error } = await supabase
+      // Сначала получаем пост
+      const { data: post, error: postError } = await supabase
         .from("posts")
-        .select("*, profiles!posts_user_id_fkey(*), comments(*, profiles!comments_user_id_fkey(*)), post_likes(*)")
+        .select("*")
         .eq("id", id)
         .maybeSingle();
 
-      if (error) {
-        throw error;
-      }
+      if (postError) throw postError;
       if (!post) {
         setActivePostError("Broadcast was not found or has been deleted.");
         return;
       }
 
-      const comments = post.comments || [];
-      comments.sort((a: any, b: any) => {
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-      });
+      // Получаем профиль автора (используем user_id)
+      const { data: authorProfile, error: authorError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", post.user_id)
+        .maybeSingle();
 
-      setActivePost({ ...post, comments });
+      if (authorError) console.error("Error fetching author:", authorError);
+
+      // Получаем комментарии с их авторами
+      const { data: comments, error: commentsError } = await supabase
+        .from("comments")
+        .select("*")
+        .eq("post_id", id)
+        .order("created_at", { ascending: true });
+
+      if (commentsError) console.error("Error fetching comments:", commentsError);
+
+      // Получаем профили для комментаторов
+      const commentAuthorIds = comments?.map(c => c.user_id).filter(Boolean) || [];
+      const { data: commentProfiles, error: commentProfilesError } = await supabase
+        .from("profiles")
+        .select("*")
+        .in("id", commentAuthorIds);
+
+      if (commentProfilesError) console.error("Error fetching comment profiles:", commentProfilesError);
+
+      // Получаем лайки
+      const { data: likes, error: likesError } = await supabase
+        .from("post_likes")
+        .select("*")
+        .eq("post_id", id);
+
+      if (likesError) console.error("Error fetching likes:", likesError);
+
+      // Собираем всё вместе
+      const commentsWithProfiles = comments?.map(comment => ({
+        ...comment,
+        profiles: commentProfiles?.find(p => p.id === comment.user_id)
+      })) || [];
+
+      const fullPost = {
+        ...post,
+        profiles: authorProfile,
+        comments: commentsWithProfiles,
+        post_likes: likes || []
+      };
+
+      setActivePost(fullPost);
     } catch (err: any) {
       console.error("Direct db single post fetch error:", err);
       setActivePostError("Connection error loading this broadcast detail.");
@@ -123,28 +165,74 @@ export default function App() {
       setLoadingPosts(true);
       setPostsError(null);
       
-      const { data, error } = await supabase
+      // Получаем все посты
+      const { data: postsData, error: postsError } = await supabase
         .from("posts")
-        .select("*, profiles!posts_user_id_fkey(*), comments(*, profiles!comments_user_id_fkey(*)), post_likes(*)")
+        .select("*")
         .order("created_at", { ascending: false });
 
-      if (error) {
-        throw error;
-      }
+      if (postsError) throw postsError;
 
-      // Sort comments inside each post manually by created_at ascending
-      const sortedData = (data || []).map((post: any) => {
-        const comments = post.comments || [];
-        comments.sort((a: any, b: any) => {
-          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-        });
+      // Получаем все уникальные user_id из постов
+      const userIds = [...new Set(postsData?.map(p => p.user_id).filter(Boolean))];
+      
+      // Получаем профили авторов
+      const { data: profilesData, error: profilesError } = await supabase
+        .from("profiles")
+        .select("*")
+        .in("id", userIds);
+
+      if (profilesError) console.error("Error fetching profiles:", profilesError);
+
+      // Получаем все комментарии к постам
+      const postIds = postsData?.map(p => p.id) || [];
+      const { data: commentsData, error: commentsError } = await supabase
+        .from("comments")
+        .select("*")
+        .in("post_id", postIds)
+        .order("created_at", { ascending: true });
+
+      if (commentsError) console.error("Error fetching comments:", commentsError);
+
+      // Получаем профили для комментаторов
+      const commentUserIds = [...new Set(commentsData?.map(c => c.user_id).filter(Boolean))];
+      const { data: commentProfilesData, error: commentProfilesError } = await supabase
+        .from("profiles")
+        .select("*")
+        .in("id", commentUserIds);
+
+      if (commentProfilesError) console.error("Error fetching comment profiles:", commentProfilesError);
+
+      // Получаем все лайки
+      const { data: likesData, error: likesError } = await supabase
+        .from("post_likes")
+        .select("*")
+        .in("post_id", postIds);
+
+      if (likesError) console.error("Error fetching likes:", likesError);
+
+      // Собираем всё вместе
+      const enrichedPosts = postsData?.map(post => {
+        const authorProfile = profilesData?.find(p => p.id === post.user_id);
+        
+        const postComments = commentsData
+          ?.filter(c => c.post_id === post.id)
+          .map(comment => ({
+            ...comment,
+            profiles: commentProfilesData?.find(p => p.id === comment.user_id)
+          })) || [];
+        
+        const postLikes = likesData?.filter(l => l.post_id === post.id) || [];
+        
         return {
           ...post,
-          comments
+          profiles: authorProfile,
+          comments: postComments,
+          post_likes: postLikes
         };
-      });
+      }) || [];
 
-      setPosts(sortedData);
+      setPosts(enrichedPosts);
     } catch (err: any) {
       console.error("Direct db posts fetch error:", err);
       setPostsError("Network error while trying to retrieve feed directly from the database.");
@@ -153,10 +241,101 @@ export default function App() {
     }
   };
 
-  // Check and restore user session from localStorage, and check for moderator password in URL query on startup
+  // Restore user session from Supabase
+  const restoreSession = async () => {
+    try {
+      // Get session from Supabase
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session) {
+        // No active session
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
+        return;
+      }
+
+      // Get user profile from profiles table
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", session.user.id)
+        .maybeSingle();
+
+      if (profile && !profileError) {
+        const userData: UserSessionData = {
+          id: profile.id,
+          username: profile.username,
+          display_name: profile.display_name,
+          bio: profile.bio,
+          discord: profile.discord,
+          avatar_url: profile.avatar_url,
+          is_verified: profile.is_verified,
+          created_at: profile.created_at,
+          email: session.user.email
+        };
+        
+        setCurrentUser(userData);
+        
+        // Store for compatibility with old code
+        localStorage.setItem("token", session.access_token);
+        localStorage.setItem("userId", session.user.id);
+      } else {
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
+      }
+    } catch (err) {
+      console.error("Session restore error:", err);
+      localStorage.removeItem("token");
+      localStorage.removeItem("userId");
+    }
+  };
+
+  // Set up auth state listener
   useEffect(() => {
-    const checkSessionAndURL = async () => {
-      // 1. Check for ?admin=RealMaveboAdminModeration67 or ?moderation=RealMaveboAdminModeration67
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session) {
+        // User signed in
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        if (profile) {
+          setCurrentUser({
+            id: profile.id,
+            username: profile.username,
+            display_name: profile.display_name,
+            bio: profile.bio,
+            discord: profile.discord,
+            avatar_url: profile.avatar_url,
+            is_verified: profile.is_verified,
+            created_at: profile.created_at,
+            email: session.user.email
+          });
+          localStorage.setItem("token", session.access_token);
+          localStorage.setItem("userId", session.user.id);
+        }
+      } else {
+        // User signed out
+        setCurrentUser(null);
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
+      }
+      
+      // Refresh posts after auth change
+      fetchPosts();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Check session and URL params on mount
+  useEffect(() => {
+    const checkURLAndSession = async () => {
+      // Check for admin URL param
       const params = new URLSearchParams(window.location.search);
       const modParam = params.get("admin") || params.get("moderation");
       if (modParam === "RealMaveboAdminModeration67") {
@@ -166,68 +345,14 @@ export default function App() {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
-      // 2. Load auth sessions
-      const token = localStorage.getItem("token");
-      const storedUserId = localStorage.getItem("userId");
-      if (!token && !storedUserId) {
-        return;
-      }
-      try {
-        let userProfile: any = null;
-        
-        // 1. First, attempt to retrieve via REST API
-        try {
-          const res = await fetch("/api/auth/me", {
-            headers: {
-              Authorization: `Bearer ${token || ""}`,
-            },
-          });
-          if (res.ok) {
-            const json = await res.json();
-            if (json && json.success && json.user) {
-              userProfile = json.user;
-            }
-          }
-        } catch (apiErr) {
-          console.warn("API me endpoint not found or unreachable, falling back to direct DB fetch", apiErr);
-        }
-
-        // 2. If REST API fails (e.g., static PWA on Vercel), fetch directly from the profiles table
-        if (!userProfile && storedUserId) {
-          const { data: profile, error: dbErr } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", storedUserId)
-            .maybeSingle();
-            
-          if (profile && !dbErr) {
-            userProfile = {
-              id: profile.id,
-              username: profile.username,
-              display_name: profile.display_name,
-              bio: profile.bio,
-              discord: profile.discord,
-              avatar_url: profile.avatar_url,
-              is_verified: profile.is_verified,
-              created_at: profile.created_at
-            };
-          }
-        }
-
-        if (userProfile) {
-          setCurrentUser(userProfile);
-        } else {
-          localStorage.removeItem("token");
-          localStorage.removeItem("userId");
-        }
-      } catch (err) {
-        console.error("Session restore failure", err);
-      }
+      // Restore session
+      await restoreSession();
+      
+      // Fetch posts
+      await fetchPosts();
     };
 
-    checkSessionAndURL().then(() => {
-      fetchPosts();
-    });
+    checkURLAndSession();
   }, []);
 
   // Synchronize routing details
@@ -250,7 +375,8 @@ export default function App() {
     fetchPosts();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     localStorage.removeItem("token");
     localStorage.removeItem("userId");
     setCurrentUser(null);
@@ -263,12 +389,12 @@ export default function App() {
     const query = searchQuery.toLowerCase().trim();
     if (!query) return true;
 
-    const contentMatches = post.content.toLowerCase().includes(query);
-    const authorMatches = post.author_name.toLowerCase().includes(query);
+    const contentMatches = post.content?.toLowerCase().includes(query) || false;
+    const authorMatches = post.author_name?.toLowerCase().includes(query) || false;
     const profileMatches =
       post.profiles &&
       typeof post.profiles === "object" &&
-      ((post.profiles as any).username.toLowerCase().includes(query) ||
+      ((post.profiles as any).username?.toLowerCase().includes(query) ||
         ((post.profiles as any).display_name && (post.profiles as any).display_name.toLowerCase().includes(query)));
 
     return contentMatches || authorMatches || profileMatches;
@@ -344,12 +470,12 @@ export default function App() {
                 className="flex items-center space-x-2 bg-[#121118]/80 border border-slate-900 text-slate-200 hover:bg-slate-850 duration-100 transition-all px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
               >
                 <img
-                  src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username)}`}
+                  src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username || currentUser.email || "user")}`}
                   alt="avatar"
                   referrerPolicy="no-referrer"
                   className="w-4 h-4 bg-purple-950 rounded-full shrink-0 object-cover"
                 />
-                <span className="max-w-[80px] truncate hidden sm:inline">@{currentUser.username}</span>
+                <span className="max-w-[80px] truncate hidden sm:inline">@{currentUser.username || currentUser.email?.split('@')[0]}</span>
               </button>
             ) : (
               <button

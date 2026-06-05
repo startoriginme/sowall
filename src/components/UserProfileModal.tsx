@@ -9,6 +9,7 @@ import { X, User, Disc, MessageSquare, Calendar, Copy, Check, Users, BadgeCheck 
 import { Post, Profile, UserSessionData } from "../types";
 import { formatRelativeTime, copyToClipboard } from "../utils";
 import PostCard from "./PostCard";
+import { supabase } from "../lib/supabase";
 
 interface UserProfileModalProps {
   username: string | null;
@@ -53,15 +54,78 @@ export default function UserProfileModal({
     try {
       setLoading(true);
       setErrorProfile(null);
-      const res = await fetch(`/api/profiles/${encodeURIComponent(username)}`);
-      const json = await res.json();
-      if (json.success) {
-        setProfileData(json.profile);
-      } else {
-        setErrorProfile(json.error || "Failed to load profile.");
+
+      // 1. Get profile by username
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("username", username)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+      
+      if (!profile) {
+        setErrorProfile("User not found.");
+        setLoading(false);
+        return;
       }
-    } catch (err) {
-      setErrorProfile("A network error occurred while loading the profile.");
+
+      // 2. Get user's posts
+      const { data: posts, error: postsError } = await supabase
+        .from("posts")
+        .select(`
+          *,
+          profiles!posts_user_id_fkey (*),
+          comments:comments (
+            *,
+            profiles:profiles!comments_user_id_fkey (*)
+          ),
+          post_likes (*)
+        `)
+        .eq("user_id", profile.id)
+        .order("created_at", { ascending: false });
+
+      if (postsError) throw postsError;
+
+      // Sort comments inside each post
+      const sortedPosts = (posts || []).map((post: any) => {
+        const comments = post.comments || [];
+        comments.sort((a: any, b: any) => {
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        });
+        return {
+          ...post,
+          comments
+        };
+      });
+
+      // 3. Clean up bio if it's JSON
+      let cleanBio = profile.bio || "";
+      if (cleanBio.trim().startsWith("{")) {
+        try {
+          const parsed = JSON.parse(cleanBio);
+          cleanBio = parsed.text || "";
+        } catch (e) {
+          // keep as is
+        }
+      }
+
+      setProfileData({
+        id: profile.id,
+        username: profile.username,
+        display_name: profile.display_name,
+        avatar_url: profile.avatar_url,
+        bio: cleanBio,
+        discord: profile.discord || "",
+        is_verified: profile.is_verified || false,
+        created_at: profile.created_at,
+        posts_count: sortedPosts.length,
+        posts: sortedPosts,
+      });
+      
+    } catch (err: any) {
+      console.error("Error fetching profile:", err);
+      setErrorProfile(err.message || "Failed to load profile.");
     } finally {
       setLoading(false);
     }
@@ -85,30 +149,25 @@ export default function UserProfileModal({
   const handleDeletePost = async (postId: string) => {
     if (!window.confirm("Are you sure you want to delete this post?")) return;
     try {
-      const res = await fetch(`/api/posts/${postId}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${localStorage.getItem("token") || ""}`
-        },
-        body: JSON.stringify({ password: adminPassword })
-      });
-      const data = await res.json();
-      if (data.success) {
-        // Remove locally
-        if (profileData) {
-          setProfileData({
-            ...profileData,
-            posts: profileData.posts.filter(p => p.id !== postId),
-            posts_count: Math.max(0, profileData.posts_count - 1)
-          });
-        }
-        if (onPostDeleted) onPostDeleted();
-      } else {
-        alert(data.error || "Error deleting post");
+      const { error } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", postId);
+      
+      if (error) throw error;
+      
+      // Update local state
+      if (profileData) {
+        setProfileData({
+          ...profileData,
+          posts: profileData.posts.filter(p => p.id !== postId),
+          posts_count: Math.max(0, profileData.posts_count - 1)
+        });
       }
+      if (onPostDeleted) onPostDeleted();
     } catch (err) {
-      alert("Error sending delete request.");
+      console.error("Error deleting post:", err);
+      alert("Error deleting post.");
     }
   };
 
@@ -190,18 +249,7 @@ export default function UserProfileModal({
                     <div className="md:col-span-2 bg-[#161620] border border-slate-800/80 p-4 rounded-xl space-y-2">
                       <h3 className="text-xs font-semibold uppercase text-purple-400 tracking-wider">About Me</h3>
                       <p className="text-slate-200 text-sm whitespace-pre-wrap leading-relaxed">
-                        {(() => {
-                          let bioDisplay = profileData.bio || "";
-                          if (bioDisplay.trim().startsWith("{")) {
-                            try {
-                              const parsed = JSON.parse(bioDisplay);
-                              bioDisplay = parsed.text || "";
-                            } catch (e) {
-                              // ignore
-                            }
-                          }
-                          return bioDisplay && bioDisplay.trim() !== "" ? bioDisplay : "This user has not set a bio yet.";
-                        })()}
+                        {profileData.bio && profileData.bio.trim() !== "" ? profileData.bio : "This user has not set a bio yet."}
                       </p>
                     </div>
 
@@ -281,6 +329,7 @@ export default function UserProfileModal({
                               if (onClickPost) onClickPost(id);
                             }}
                             adminPassword={adminPassword}
+                            onRepost={undefined}
                           />
                         ))}
                       </div>

@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { MessageSquare, Edit3, Trash2, Calendar, CornerDownRight, Check, X, ShieldAlert, BadgeCheck, Heart, BarChart3, Paperclip, FileText, Maximize2, Repeat } from "lucide-react";
 import { Post, Comment, UserSessionData } from "../types";
 import { formatRelativeTime } from "../utils";
+import { supabase } from "../lib/supabase";
 
 interface PostCardProps {
   key?: any;
@@ -85,24 +86,36 @@ export default function PostCard({
   };
 
   const viewerLikerId = getViewerLikerId();
-  const hasLiked = post.post_likes ? post.post_likes.some((lik) => lik.liker_id === viewerLikerId) : false;
+  const hasLiked = post.post_likes ? post.post_likes.some((lik: any) => lik.liker_id === viewerLikerId || lik.user_id === viewerLikerId) : false;
 
   const handleToggleLike = async () => {
     if (likeLoading) return;
     try {
       setLikeLoading(true);
-      const res = await fetch(`/api/posts/${post.id}/like`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-        body: JSON.stringify({ liker_id: viewerLikerId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        onPostUpdated();
+      
+      if (hasLiked) {
+        // Unlike: delete the like
+        const { error } = await supabase
+          .from("post_likes")
+          .delete()
+          .eq("post_id", post.id)
+          .eq("liker_id", viewerLikerId);
+        
+        if (error) throw error;
+      } else {
+        // Like: insert new like
+        const { error } = await supabase
+          .from("post_likes")
+          .insert({
+            post_id: post.id,
+            liker_id: viewerLikerId,
+            user_id: currentUser?.id || null,
+          });
+        
+        if (error) throw error;
       }
+      
+      onPostUpdated();
     } catch (e) {
       console.error("Failed to toggle like status", e);
     } finally {
@@ -111,25 +124,37 @@ export default function PostCard({
   };
 
   const handleVote = async (optionIndex: number) => {
-    if (voteLoading) return;
+    if (voteLoading || !metadata?.poll) return;
     try {
       setVoteLoading(true);
-      const res = await fetch(`/api/posts/${post.id}/vote`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-        body: JSON.stringify({ optionIndex, voterId: viewerLikerId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        onPostUpdated();
-      } else {
-        alert(data.error || "Cannot complete vote.");
-      }
+      
+      // Update poll votes
+      const updatedVotes = { ...metadata.poll.votes };
+      updatedVotes[optionIndex] = (updatedVotes[optionIndex] || 0) + 1;
+      
+      const updatedVoters = [...(metadata.poll.voters || []), viewerLikerId];
+      
+      const updatedPoll = {
+        ...metadata.poll,
+        votes: updatedVotes,
+        voters: updatedVoters,
+      };
+      
+      // Update the post content with new poll data
+      const newMetadata = { ...metadata, poll: updatedPoll };
+      const newContent = `${mainContent}${separator}${JSON.stringify(newMetadata)}`;
+      
+      const { error } = await supabase
+        .from("posts")
+        .update({ content: newContent })
+        .eq("id", post.id);
+      
+      if (error) throw error;
+      
+      onPostUpdated();
     } catch (e) {
       console.error("Failed to cast vote", e);
+      alert("Cannot complete vote.");
     } finally {
       setVoteLoading(false);
     }
@@ -158,23 +183,19 @@ export default function PostCard({
     try {
       setEditLoading(true);
       setEditError(null);
-      const res = await fetch(`/api/posts/${post.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-        body: JSON.stringify({ content: finalContent }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setIsEditing(false);
-        onPostUpdated();
-      } else {
-        setEditError(data.error || "Failed to save post.");
-      }
+      
+      const { error } = await supabase
+        .from("posts")
+        .update({ content: finalContent })
+        .eq("id", post.id);
+      
+      if (error) throw error;
+      
+      setIsEditing(false);
+      onPostUpdated();
     } catch (e) {
-      setEditError("Network error editing publication.");
+      console.error("Failed to update post:", e);
+      setEditError("Failed to save post.");
     } finally {
       setEditLoading(false);
     }
@@ -183,26 +204,21 @@ export default function PostCard({
   const handleDeletePost = async () => {
     if (!window.confirm("Are you sure you want to permanently delete this post from the wall?")) return;
     try {
-      const res = await fetch(`/api/posts/${post.id}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-        body: JSON.stringify({ password: adminPassword }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        if (onPostDeleted) {
-          onPostDeleted();
-        } else {
-          onPostUpdated();
-        }
+      const { error } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", post.id);
+      
+      if (error) throw error;
+      
+      if (onPostDeleted) {
+        onPostDeleted();
       } else {
-        alert(data.error || "Failed to delete post.");
+        onPostUpdated();
       }
     } catch (e) {
-      alert("Connection error during purge.");
+      console.error("Failed to delete post:", e);
+      alert("Failed to delete post.");
     }
   };
 
@@ -216,30 +232,38 @@ export default function PostCard({
       setAddCommentLoading(true);
       setCommentError(null);
 
-      const res = await fetch(`/api/posts/${post.id}/comments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-        body: JSON.stringify({
-          content: commentContent.trim(),
-          is_anonymous: isAnonymousComment,
-          custom_name: !isAnonymousComment && customCommentName ? customCommentName.trim() : undefined,
-        }),
-      });
+      const commentData: any = {
+        post_id: post.id,
+        content: commentContent.trim(),
+      };
 
-      const data = await res.json();
-      if (data.success) {
-        setCommentContent("");
-        setCustomCommentName("");
-        setIsAnonymousComment(true);
-        onPostUpdated();
+      if (currentUser && !isAnonymousComment) {
+        commentData.user_id = currentUser.id;
+        commentData.author_name = currentUser.username;
+        commentData.is_anonymous = false;
+      } else if (currentUser && isAnonymousComment) {
+        commentData.user_id = currentUser.id;
+        commentData.author_name = "Anonymous";
+        commentData.is_anonymous = true;
       } else {
-        setCommentError(data.error || "Failed to submit comment.");
+        // Guest comment
+        commentData.author_name = customCommentName.trim() || "Guest";
+        commentData.is_anonymous = true;
       }
+
+      const { error } = await supabase
+        .from("comments")
+        .insert(commentData);
+      
+      if (error) throw error;
+      
+      setCommentContent("");
+      setCustomCommentName("");
+      setIsAnonymousComment(true);
+      onPostUpdated();
     } catch (err) {
-      setCommentError("Failed to comment. Please verify your connection.");
+      console.error("Failed to add comment:", err);
+      setCommentError("Failed to submit comment.");
     } finally {
       setAddCommentLoading(false);
     }
@@ -248,22 +272,17 @@ export default function PostCard({
   const handleDeleteComment = async (commentId: string) => {
     if (!window.confirm("Are you sure you want to delete this comment?")) return;
     try {
-      const res = await fetch(`/api/comments/${commentId}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-        body: JSON.stringify({ password: adminPassword }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        onPostUpdated();
-      } else {
-        alert(data.error || "Failed to delete comment.");
-      }
+      const { error } = await supabase
+        .from("comments")
+        .delete()
+        .eq("id", commentId);
+      
+      if (error) throw error;
+      
+      onPostUpdated();
     } catch (e) {
-      alert("Network failure while deleting comment.");
+      console.error("Failed to delete comment:", e);
+      alert("Failed to delete comment.");
     }
   };
 
@@ -285,13 +304,12 @@ export default function PostCard({
     
     return parts.map((part, index) => {
       if (part.startsWith("@") && part.length > 1) {
-        // Strip trailing punctuation from clean profile lookup username
         const cleanUsername = part.substring(1).replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
         return (
           <span
             key={index}
             onClick={(e) => {
-              e.stopPropagation(); // Avoid clicking parent card/element
+              e.stopPropagation();
               onOpenUserProfile(cleanUsername);
             }}
             className="text-purple-400 hover:text-purple-300 font-semibold hover:underline cursor-pointer inline"
@@ -332,305 +350,310 @@ export default function PostCard({
 
       {/* Main post row */}
       <div className="flex space-x-3.5 w-full">
-        {/* Left side: Avatar Column (Bluesky design layout) */}
+        {/* Left side: Avatar Column */}
         <div className="shrink-0">
-        {hasJoinedProfile ? (
-          <button
-            onClick={() => onOpenUserProfile((post.profiles as any).username)}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-purple-500/10 overflow-hidden bg-slate-950 p-0.5 hover:opacity-90 transition-opacity cursor-pointer block"
-          >
-            <img
-              src={(post.profiles as any).avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${(post.profiles as any).username}`}
-              alt="avatar"
-              referrerPolicy="no-referrer"
-              className="w-full h-full rounded-full object-cover"
-            />
-          </button>
-        ) : (
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-slate-800 bg-slate-900 flex items-center justify-center text-xs font-bold text-slate-400 select-none">
-            {post.author_name ? post.author_name.charAt(0).toUpperCase() : "A"}
-          </div>
-        )}
-      </div>
-
-      {/* Right side: Header, Content, Attachments, Poll, Actions, Comments */}
-      <div className="flex-1 min-w-0 space-y-2 text-left">
-        {/* Author information header row */}
-        <div className="flex items-start justify-between flex-nowrap w-full gap-x-2">
-          <div className="flex items-start space-x-2">
-            {hasJoinedProfile ? (
-              <div className="flex flex-col text-left">
-                <div className="flex items-center space-x-1 flex-wrap">
-                  <button
-                    onClick={() => onOpenUserProfile((post.profiles as any).username)}
-                    className="font-bold text-xs text-purple-200 hover:text-purple-300 transition-colors hover:underline text-left cursor-pointer"
-                  >
-                    {(post.profiles as any).display_name || (post.profiles as any).username}
-                  </button>
-                  {((post.profiles as any).is_verified ||
-                    (post.profiles as any).username.toLowerCase() === "mavebo" ||
-                    (post.profiles as any).username.toLowerCase() === "kode" ||
-                    (post.profiles as any).username.toLowerCase() === "kodewt"
-                  ) && (
-                    <BadgeCheck className="w-3.5 h-3.5 text-purple-400 shrink-0 fill-purple-950 inline-block" />
-                  )}
-                </div>
-                <span className="text-[10px] text-slate-500">
-                  @{(post.profiles as any).username}
-                </span>
-              </div>
-            ) : (
-              <div className="flex flex-col text-left">
-                <div className="flex items-center space-x-1">
-                  <span className="font-bold text-xs text-slate-300">
-                    {post.author_name || "Anonymous"}
-                  </span>
-                  <span className="text-[9px] bg-slate-900 text-slate-500 px-1 py-0.2 rounded font-mono uppercase font-semibold">
-                    ANON
-                  </span>
-                </div>
-              </div>
-            )}
-            <span className="text-slate-600 text-[10px] self-start mt-0.5">•</span>
-            {/* Timestamp */}
-            <span className="text-[10px] text-slate-500 font-mono self-start mt-0.5">
-              {formatRelativeTime(post.created_at)}
-            </span>
-          </div>
+          {hasJoinedProfile ? (
+            <button
+              onClick={() => onOpenUserProfile((post.profiles as any).username)}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-purple-500/10 overflow-hidden bg-slate-950 p-0.5 hover:opacity-90 transition-opacity cursor-pointer block"
+            >
+              <img
+                src={(post.profiles as any).avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${(post.profiles as any).username}`}
+                alt="avatar"
+                referrerPolicy="no-referrer"
+                className="w-full h-full rounded-full object-cover"
+              />
+            </button>
+          ) : (
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-slate-800 bg-slate-900 flex items-center justify-center text-xs font-bold text-slate-400 select-none">
+              {post.author_name ? post.author_name.charAt(0).toUpperCase() : "A"}
+            </div>
+          )}
         </div>
 
-        {/* Content paragraph */}
-        <div className="space-y-3">
-          {isEditing ? (
-            <div className="space-y-2">
-              <textarea
-                value={editedContent}
-                onChange={(e) => setEditedContent(e.target.value)}
-                rows={3}
-                className="w-full bg-[#121118] border border-slate-800 rounded-xl px-3 py-2 text-slate-100 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/30 resize-none"
-              />
-              {editError && <div className="text-xs text-red-400">{editError}</div>}
-              <div className="flex items-center space-x-2 justify-end">
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="bg-slate-850 hover:bg-slate-800 text-slate-300 text-[10px] uppercase font-semibold px-3 py-1.5 rounded-lg border border-slate-800 transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleUpdatePost}
-                  disabled={editLoading}
-                  className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] uppercase font-semibold px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center"
-                >
-                  {editLoading ? "Saving..." : "Save"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-slate-200 text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">
-              {renderContentWithMentions(mainContent)}
-            </p>
-          )}
-
-          {/* VISUAL FILE ATTACHMENT RENDERING */}
-          {metadata?.attachment && (
-            <div className="relative overflow-hidden bg-slate-950/20 border border-slate-900 rounded-xl max-w-sm mt-2 animate-fade-in group">
-              {metadata.attachment.type.startsWith("image/") ? (
-                <div 
-                  className="max-h-[300px] overflow-hidden flex items-center cursor-zoom-in relative group"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsFullscreenImageOpen(true);
-                  }}
-                >
-                  <img
-                    src={metadata.attachment.data}
-                    alt="attachment payload representation"
-                    referrerPolicy="no-referrer"
-                    className="w-full object-cover rounded-xl transition-all duration-300 hover:scale-[1.02]"
-                  />
-                  <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="text-white text-[10px] font-semibold px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md flex items-center space-x-1.5 border border-white/10 shadow-lg">
-                      <Maximize2 className="w-3 h-3 text-purple-300" />
-                      <span>View Full Screen</span>
+        {/* Right side: Content area */}
+        <div className="flex-1 min-w-0 space-y-2 text-left">
+          {/* Author information header row */}
+          <div className="flex items-start justify-between flex-nowrap w-full gap-x-2">
+            <div className="flex items-start space-x-2">
+              {hasJoinedProfile ? (
+                <div className="flex flex-col text-left">
+                  <div className="flex items-center space-x-1 flex-wrap">
+                    <button
+                      onClick={() => onOpenUserProfile((post.profiles as any).username)}
+                      className="font-bold text-xs text-purple-200 hover:text-purple-300 transition-colors hover:underline text-left cursor-pointer"
+                    >
+                      {(post.profiles as any).display_name || (post.profiles as any).username}
+                    </button>
+                    {((post.profiles as any).is_verified ||
+                      (post.profiles as any).username.toLowerCase() === "mavebo" ||
+                      (post.profiles as any).username.toLowerCase() === "kode" ||
+                      (post.profiles as any).username.toLowerCase() === "kodewt"
+                    ) && (
+                      <BadgeCheck className="w-3.5 h-3.5 text-purple-400 shrink-0 fill-purple-950 inline-block" />
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-500">
+                    @{(post.profiles as any).username}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col text-left">
+                  <div className="flex items-center space-x-1">
+                    <span className="font-bold text-xs text-slate-300">
+                      {post.author_name || "Anonymous"}
+                    </span>
+                    <span className="text-[9px] bg-slate-900 text-slate-500 px-1 py-0.2 rounded font-mono uppercase font-semibold">
+                      ANON
                     </span>
                   </div>
                 </div>
-              ) : (
-                <div className="p-4 flex items-center space-x-3">
-                  <div className="w-10 h-10 rounded-lg bg-purple-950/30 border border-purple-500/10 flex items-center justify-center font-bold text-xl text-purple-400">
-                    <FileText className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-200 truncate">{metadata.attachment.name}</p>
-                    <p className="text-[9px] text-slate-500 uppercase font-mono tracking-wider">ATTACHED FILE DOCUMENT</p>
-                  </div>
-                </div>
               )}
+              <span className="text-slate-600 text-[10px] self-start mt-0.5">•</span>
+              <span className="text-[10px] text-slate-500 font-mono self-start mt-0.5">
+                {formatRelativeTime(post.created_at)}
+              </span>
             </div>
-          )}
+          </div>
 
-          {/* INTERACTIVE POLL RESULTS & VOTING COMPRESSED CARD */}
-          {metadata?.poll && (
-            <div className="bg-[#121118]/60 border border-purple-950/30 rounded-xl p-3.5 space-y-3 mt-3 animate-fade-in max-w-sm">
-              <div className="flex items-center space-x-1.5 text-purple-400">
-                <BarChart3 className="w-3.5 h-3.5 text-purple-400" />
-                <span className="text-[10px] font-bold uppercase tracking-wider font-display shrink-0">Interactive Poll</span>
+          {/* Content paragraph */}
+          <div className="space-y-3">
+            {isEditing ? (
+              <div className="space-y-2">
+                <textarea
+                  value={editedContent}
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  rows={3}
+                  className="w-full bg-[#121118] border border-slate-800 rounded-xl px-3 py-2 text-slate-100 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/30 resize-none"
+                />
+                {editError && <div className="text-xs text-red-400">{editError}</div>}
+                <div className="flex items-center space-x-2 justify-end">
+                  <button
+                    onClick={() => setIsEditing(false)}
+                    className="bg-slate-850 hover:bg-slate-800 text-slate-300 text-[10px] uppercase font-semibold px-3 py-1.5 rounded-lg border border-slate-800 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleUpdatePost}
+                    disabled={editLoading}
+                    className="bg-purple-600 hover:bg-purple-500 text-white text-[10px] uppercase font-semibold px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer flex items-center"
+                  >
+                    {editLoading ? "Saving..." : "Save"}
+                  </button>
+                </div>
               </div>
-              
-              <h4 className="text-xs font-semibold text-white">{metadata.poll.question}</h4>
+            ) : (
+              <p className="text-slate-200 text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">
+                {renderContentWithMentions(mainContent)}
+              </p>
+            )}
 
-              <div className="space-y-2 pt-1">
-                {metadata.poll.options.map((option, idx) => {
-                  const votesCount = metadata.poll?.votes?.[idx] || 0;
-                  const ratio = totalVotes > 0 ? (votesCount / totalVotes) * 100 : 0;
-
-                  return (
-                    <div key={idx} className="relative">
-                      {shouldShowResults ? (
-                        <div className="relative overflow-hidden rounded-lg bg-slate-900 border border-slate-850/50 py-2.5 px-3 flex items-center justify-between text-xs text-slate-200">
-                          {/* Colored backer bar */}
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${ratio}%` }}
-                            transition={{ duration: 0.8 }}
-                            className="absolute top-0 bottom-0 left-0 bg-purple-600/20"
-                          />
-                          <span className="relative z-10 font-medium">{option}</span>
-                          <span className="relative z-10 font-mono text-[10px] text-slate-400">
-                            {ratio.toFixed(0)}% ({votesCount})
-                          </span>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => handleVote(idx)}
-                          disabled={voteLoading}
-                          className="w-full text-left py-2.5 px-3 border border-slate-800 hover:border-purple-500/30 bg-[#161620] hover:bg-purple-950/25 rounded-lg text-xs text-slate-300 hover:text-white transition-all duration-150 cursor-pointer disabled:opacity-50"
-                        >
-                          {option}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Aggregated details row */}
-              <div className="flex items-center justify-between text-[9px] text-slate-500 font-mono border-t border-slate-850 pt-2 flex-wrap">
-                <span>{totalVotes} total votes</span>
-                {shouldShowResults && <span className="text-purple-400/80">Results active</span>}
-              </div>
-            </div>
-          )}
-          {/* REPOSTED ORIGINAL POST SUB-CARD */}
-          {metadata?.repost && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation(); // Avoid choosing/navigating to parent card
-                if (onClickPost && metadata?.repost) {
-                  onClickPost(metadata.repost.id);
-                }
-              }}
-              className="bg-[#050508]/60 border border-slate-900 hover:border-purple-950/20 rounded-xl p-3 space-y-2 text-left mt-3 animate-fade-in transition-colors cursor-pointer"
-            >
-              <div className="flex items-center space-x-2">
-                {metadata.repost.profiles && typeof metadata.repost.profiles === "object" ? (
-                  <div className="w-5 h-5 rounded-full overflow-hidden bg-slate-950 p-[1px] border border-purple-500/10 shrink-0">
+            {/* VISUAL FILE ATTACHMENT RENDERING */}
+            {metadata?.attachment && (
+              <div className="relative overflow-hidden bg-slate-950/20 border border-slate-900 rounded-xl max-w-sm mt-2 animate-fade-in group">
+                {metadata.attachment.type.startsWith("image/") ? (
+                  <div 
+                    className="max-h-[300px] overflow-hidden flex items-center cursor-zoom-in relative group"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsFullscreenImageOpen(true);
+                    }}
+                  >
                     <img
-                      src={metadata.repost.profiles.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${metadata.repost.profiles.username}`}
-                      alt="original poster's avatar"
-                      className="w-full h-full rounded-full object-cover"
+                      src={metadata.attachment.data}
+                      alt="attachment payload representation"
+                      referrerPolicy="no-referrer"
+                      className="w-full object-cover rounded-xl transition-all duration-300 hover:scale-[1.02]"
                     />
+                    <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="text-white text-[10px] font-semibold px-2.5 py-1.5 rounded-lg bg-black/75 backdrop-blur-md flex items-center space-x-1.5 border border-white/10 shadow-lg">
+                        <Maximize2 className="w-3 h-3 text-purple-300" />
+                        <span>View Full Screen</span>
+                      </span>
+                    </div>
                   </div>
                 ) : (
-                  <div className="w-5 h-5 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-[9px] font-bold text-slate-400 shrink-0 select-none">
-                    {metadata.repost.author_name ? metadata.repost.author_name.charAt(0).toUpperCase() : "A"}
+                  <div className="p-4 flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-lg bg-purple-950/30 border border-purple-500/10 flex items-center justify-center font-bold text-xl text-purple-400">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-200 truncate">{metadata.attachment.name}</p>
+                      <p className="text-[9px] text-slate-500 uppercase font-mono tracking-wider">ATTACHED FILE DOCUMENT</p>
+                    </div>
                   </div>
                 )}
-                <div className="flex items-center space-x-1 flex-wrap text-[11px]">
-                  <span className="font-bold text-purple-200">
-                    {metadata.repost.profiles && typeof metadata.repost.profiles === "object"
-                      ? metadata.repost.profiles.display_name || metadata.repost.profiles.username
-                      : metadata.repost.author_name || "Anonymous"
-                    }
-                  </span>
-                  {metadata.repost.profiles && typeof metadata.repost.profiles === "object" && (
-                    <span className="text-slate-500 font-mono">@{metadata.repost.profiles.username}</span>
-                  )}
-                  <span className="text-slate-650">•</span>
-                  <span className="text-slate-500 font-mono text-[10px]">
-                    {formatRelativeTime(metadata.repost.created_at)}
-                  </span>
+              </div>
+            )}
+
+            {/* INTERACTIVE POLL RESULTS & VOTING COMPRESSED CARD */}
+            {metadata?.poll && (
+              <div className="bg-[#121118]/60 border border-purple-950/30 rounded-xl p-3.5 space-y-3 mt-3 animate-fade-in max-w-sm">
+                <div className="flex items-center space-x-1.5 text-purple-400">
+                  <BarChart3 className="w-3.5 h-3.5 text-purple-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider font-display shrink-0">Interactive Poll</span>
+                </div>
+                
+                <h4 className="text-xs font-semibold text-white">{metadata.poll.question}</h4>
+
+                <div className="space-y-2 pt-1">
+                  {metadata.poll.options.map((option, idx) => {
+                    const votesCount = metadata.poll?.votes?.[idx] || 0;
+                    const ratio = totalVotes > 0 ? (votesCount / totalVotes) * 100 : 0;
+
+                    return (
+                      <div key={idx} className="relative">
+                        {shouldShowResults ? (
+                          <div className="relative overflow-hidden rounded-lg bg-slate-900 border border-slate-850/50 py-2.5 px-3 flex items-center justify-between text-xs text-slate-200">
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${ratio}%` }}
+                              transition={{ duration: 0.8 }}
+                              className="absolute top-0 bottom-0 left-0 bg-purple-600/20"
+                            />
+                            <span className="relative z-10 font-medium">{option}</span>
+                            <span className="relative z-10 font-mono text-[10px] text-slate-400">
+                              {ratio.toFixed(0)}% ({votesCount})
+                            </span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleVote(idx)}
+                            disabled={voteLoading}
+                            className="w-full text-left py-2.5 px-3 border border-slate-800 hover:border-purple-500/30 bg-[#161620] hover:bg-purple-950/25 rounded-lg text-xs text-slate-300 hover:text-white transition-all duration-150 cursor-pointer disabled:opacity-50"
+                          >
+                            {option}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between text-[9px] text-slate-500 font-mono border-t border-slate-850 pt-2 flex-wrap">
+                  <span>{totalVotes} total votes</span>
+                  {shouldShowResults && <span className="text-purple-400/80">Results active</span>}
                 </div>
               </div>
-              <p className="text-slate-300 text-xs leading-relaxed whitespace-pre-wrap pl-1">
-                {renderContentWithMentions(metadata.repost.content.split("\n\n---STARTORIGIN_METADATA_JSON---")[0])}
-              </p>
-            </div>
-          )}
-        </div>
+            )}
 
-        {/* Bottom Interactive actions bar */}
-        <div className="flex items-center space-x-4 border-t border-slate-900/40 pt-2 justify-start">
-          {/* Heart Like Trigger */}
-          <button
-            onClick={handleToggleLike}
-            disabled={likeLoading}
-            className={`flex items-center space-x-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
-              hasLiked
-                ? "bg-red-950/20 text-red-400"
-                : "text-slate-500 hover:text-red-400 hover:bg-red-950/5"
-            }`}
-          >
-            <Heart className={`w-3.5 h-3.5 transition-transform ${hasLiked ? "fill-red-500 text-red-500 scale-110" : ""}`} />
-            <span>{post.post_likes ? post.post_likes.length : 0}</span>
-          </button>
+            {/* REPOSTED ORIGINAL POST SUB-CARD */}
+            {metadata?.repost && (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onClickPost && metadata?.repost) {
+                    onClickPost(metadata.repost.id);
+                  }
+                }}
+                className="bg-[#050508]/60 border border-slate-900 hover:border-purple-950/20 rounded-xl p-3 space-y-2 text-left mt-3 animate-fade-in transition-colors cursor-pointer"
+              >
+                <div className="flex items-center space-x-2">
+                  {metadata.repost.profiles && typeof metadata.repost.profiles === "object" ? (
+                    <div className="w-5 h-5 rounded-full overflow-hidden bg-slate-950 p-[1px] border border-purple-500/10 shrink-0">
+                      <img
+                        src={metadata.repost.profiles.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${metadata.repost.profiles.username}`}
+                        alt="original poster's avatar"
+                        className="w-full h-full rounded-full object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-[9px] font-bold text-slate-400 shrink-0 select-none">
+                      {metadata.repost.author_name ? metadata.repost.author_name.charAt(0).toUpperCase() : "A"}
+                    </div>
+                  )}
+                  <div className="flex items-center space-x-1 flex-wrap text-[11px]">
+                    <span className="font-bold text-purple-200">
+                      {metadata.repost.profiles && typeof metadata.repost.profiles === "object"
+                        ? metadata.repost.profiles.display_name || metadata.repost.profiles.username
+                        : metadata.repost.author_name || "Anonymous"
+                      }
+                    </span>
+                    {metadata.repost.profiles && typeof metadata.repost.profiles === "object" && (
+                      <span className="text-slate-500 font-mono">@{metadata.repost.profiles.username}</span>
+                    )}
+                    <span className="text-slate-650">•</span>
+                    <span className="text-slate-500 font-mono text-[10px]">
+                      {formatRelativeTime(metadata.repost.created_at)}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-slate-300 text-xs leading-relaxed whitespace-pre-wrap pl-1">
+                  {renderContentWithMentions(metadata.repost.content.split("\n\n---STARTORIGIN_METADATA_JSON---")[0])}
+                </p>
+              </div>
+            )}
+          </div>
 
-          {/* Comment Bubble Trigger */}
-          <button
-            onClick={() => setShowComments(!showComments)}
-            className={`flex items-center space-x-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
-              showComments
-                ? "bg-purple-950/20 text-purple-300"
-                : "text-slate-500 hover:text-purple-300"
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>{post.comments ? post.comments.length : 0}</span>
-          </button>
-
-          {/* Repost Trigger Button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (onRepost) {
-                onRepost(post);
-              }
-            }}
-            className="flex items-center text-xs font-semibold p-1.5 rounded-lg text-slate-500 hover:text-green-400 hover:bg-green-950/5 transition-all cursor-pointer"
-            title="Repost with comment (Quote Repost)"
-          >
-            <Repeat className="w-4 h-4" />
-          </button>
-
-          {/* Edit/Trash Actions */}
-          <div className="flex-1" />
-
-          {isOwner && !isEditing && (
+          {/* Bottom Interactive actions bar */}
+          <div className="flex items-center space-x-4 border-t border-slate-900/40 pt-2 justify-start">
+            {/* Heart Like Trigger */}
             <button
-              onClick={() => setIsEditing(true)}
-              className="text-slate-600 hover:text-slate-200 p-1 rounded-lg transition-all transition-colors cursor-pointer"
-              title="Edit Post"
+              onClick={handleToggleLike}
+              disabled={likeLoading}
+              className={`flex items-center space-x-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                hasLiked
+                  ? "bg-red-950/20 text-red-400"
+                  : "text-slate-500 hover:text-red-400 hover:bg-red-950/5"
+              }`}
             >
-              <Edit3 className="w-3.5 h-3.5" />
+              <Heart className={`w-3.5 h-3.5 transition-transform ${hasLiked ? "fill-red-500 text-red-500 scale-110" : ""}`} />
+              <span>{post.post_likes ? post.post_likes.length : 0}</span>
             </button>
-          )}
 
+            {/* Comment Bubble Trigger */}
+            <button
+              onClick={() => setShowComments(!showComments)}
+              className={`flex items-center space-x-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                showComments
+                  ? "bg-purple-950/20 text-purple-300"
+                  : "text-slate-500 hover:text-purple-300"
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>{post.comments ? post.comments.length : 0}</span>
+            </button>
 
+            {/* Repost Trigger Button */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onRepost) {
+                  onRepost(post);
+                }
+              }}
+              className="flex items-center text-xs font-semibold p-1.5 rounded-lg text-slate-500 hover:text-green-400 hover:bg-green-950/5 transition-all cursor-pointer"
+              title="Repost with comment (Quote Repost)"
+            >
+              <Repeat className="w-4 h-4" />
+            </button>
+
+            {/* Edit/Trash Actions */}
+            <div className="flex-1" />
+
+            {(isOwner || isAdminActive) && !isEditing && (
+              <button
+                onClick={handleDeletePost}
+                className="text-slate-600 hover:text-red-400 p-1 rounded-lg transition-all cursor-pointer"
+                title="Delete Post"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {isOwner && !isEditing && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="text-slate-600 hover:text-slate-200 p-1 rounded-lg transition-all transition-colors cursor-pointer"
+                title="Edit Post"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-      {/* End main post row */}
 
       {/* RENDER EXPANDED COMMENTS DRAWER */}
       {showComments && (
@@ -763,7 +786,6 @@ export default function PostCard({
             }}
             className="fixed inset-0 bg-black/95 flex items-center justify-center p-4 z-[9999] cursor-zoom-out"
           >
-            {/* Top Close Button */}
             <button
               onClick={(e) => {
                 e.stopPropagation();

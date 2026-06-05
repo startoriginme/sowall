@@ -7,6 +7,7 @@ import React, { useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Send, UserCheck, ShieldAlert, Sparkles, Hash, Paperclip, BarChart3, Plus, Trash2, Image, X, Repeat } from "lucide-react";
 import { UserSessionData, Post } from "../types";
+import { supabase } from "../lib/supabase";
 
 interface PostFormProps {
   currentUser: UserSessionData | null;
@@ -125,37 +126,52 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
       setLoading(true);
       setErrorMsg(null);
 
-      const isAnonymous = postMode !== "account";
-      const payload = {
+      // Prepare post data for Supabase
+      const postData: any = {
         content: finalContent,
-        is_anonymous: isAnonymous,
-        custom_name: postMode === "custom" ? customName.trim() : undefined,
       };
 
-      const res = await fetch("/api/posts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const responseData = await res.json();
-      if (responseData.success) {
-        setContent("");
-        setCustomName("");
-        setAttachedFile(null);
-        setPollQuestion("");
-        setPollOptions(["", ""]);
-        setShowPollCreator(false);
-        onPostCreated();
-        if (onClose) onClose();
+      // Handle authorship
+      if (currentUser && postMode === "account") {
+        postData.user_id = currentUser.id;
+        postData.author_name = currentUser.username;
+        postData.is_anonymous = false;
+      } else if (postMode === "custom" && customName.trim()) {
+        postData.author_name = customName.trim();
+        postData.is_anonymous = true;
+        if (currentUser) {
+          postData.user_id = currentUser.id;
+        }
       } else {
-        setErrorMsg(responseData.error || "Failed to publish post.");
+        // Anonymous mode
+        postData.author_name = "Anonymous";
+        postData.is_anonymous = true;
+        if (currentUser) {
+          postData.user_id = currentUser.id;
+        }
       }
-    } catch (err) {
-      setErrorMsg("A network error occurred while publishing.");
+
+      // Insert into Supabase
+      const { error } = await supabase
+        .from("posts")
+        .insert(postData);
+
+      if (error) throw error;
+
+      // Clear form and close
+      setContent("");
+      setCustomName("");
+      setAttachedFile(null);
+      setPollQuestion("");
+      setPollOptions(["", ""]);
+      setShowPollCreator(false);
+      if (onClearRepost) onClearRepost();
+      onPostCreated();
+      if (onClose) onClose();
+      
+    } catch (err: any) {
+      console.error("Error creating post:", err);
+      setErrorMsg(err.message || "Failed to publish post.");
     } finally {
       setLoading(false);
     }
