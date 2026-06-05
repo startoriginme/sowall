@@ -1,0 +1,6 @@
+{
+  "name": "StartOrigin",
+  "description": "StartOrigin - Write thoughts anonymously, share secrets, create profiles and discuss on the wall.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
