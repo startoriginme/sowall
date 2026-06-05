@@ -12,6 +12,7 @@ import AccountModal from "./components/AccountModal";
 import UserProfileModal from "./components/UserProfileModal";
 import CreatePostModal from "./components/CreatePostModal";
 import PostCard from "./components/PostCard";
+import { supabase } from "./lib/supabase";
 
 export default function App() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -45,19 +46,34 @@ export default function App() {
   const [loadingActivePost, setLoadingActivePost] = useState(false);
   const [activePostError, setActivePostError] = useState<string | null>(null);
 
-  // Fetch a single post directly
+  // Fetch a single post directly from the database
   const fetchSinglePost = async (id: string) => {
     try {
       setLoadingActivePost(true);
       setActivePostError(null);
-      const res = await fetch(`/api/posts/${id}`);
-      const json = await res.json();
-      if (json.success) {
-        setActivePost(json.data);
-      } else {
-        setActivePostError(json.error || "Broadcast was not found or has been deleted.");
+      
+      const { data: post, error } = await supabase
+        .from("posts")
+        .select("*, profiles!posts_user_id_fkey(*), comments(*, profiles!comments_user_id_fkey(*)), post_likes(*)")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
       }
-    } catch (err) {
+      if (!post) {
+        setActivePostError("Broadcast was not found or has been deleted.");
+        return;
+      }
+
+      const comments = post.comments || [];
+      comments.sort((a: any, b: any) => {
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+
+      setActivePost({ ...post, comments });
+    } catch (err: any) {
+      console.error("Direct db single post fetch error:", err);
       setActivePostError("Connection error loading this broadcast detail.");
     } finally {
       setLoadingActivePost(false);
@@ -101,19 +117,37 @@ export default function App() {
     setActivePost(null);
   };
 
-  // Fetch all posts from API
+  // Fetch all posts directly from the database
   const fetchPosts = async () => {
     try {
       setLoadingPosts(true);
-      const res = await fetch("/api/posts");
-      const json = await res.json();
-      if (json.success) {
-        setPosts(json.data || []);
-      } else {
-        setPostsError(json.error || "Failed to load publications.");
+      setPostsError(null);
+      
+      const { data, error } = await supabase
+        .from("posts")
+        .select("*, profiles!posts_user_id_fkey(*), comments(*, profiles!comments_user_id_fkey(*)), post_likes(*)")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw error;
       }
-    } catch (err) {
-      setPostsError("Network error while trying to retrieve feed.");
+
+      // Sort comments inside each post manually by created_at ascending
+      const sortedData = (data || []).map((post: any) => {
+        const comments = post.comments || [];
+        comments.sort((a: any, b: any) => {
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        });
+        return {
+          ...post,
+          comments
+        };
+      });
+
+      setPosts(sortedData);
+    } catch (err: any) {
+      console.error("Direct db posts fetch error:", err);
+      setPostsError("Network error while trying to retrieve feed directly from the database.");
     } finally {
       setLoadingPosts(false);
     }
@@ -134,18 +168,54 @@ export default function App() {
 
       // 2. Load auth sessions
       const token = localStorage.getItem("token");
-      if (!token) {
+      const storedUserId = localStorage.getItem("userId");
+      if (!token && !storedUserId) {
         return;
       }
       try {
-        const res = await fetch("/api/auth/me", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        const json = await res.json();
-        if (json.success && json.user) {
-          setCurrentUser(json.user);
+        let userProfile: any = null;
+        
+        // 1. First, attempt to retrieve via REST API
+        try {
+          const res = await fetch("/api/auth/me", {
+            headers: {
+              Authorization: `Bearer ${token || ""}`,
+            },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            if (json && json.success && json.user) {
+              userProfile = json.user;
+            }
+          }
+        } catch (apiErr) {
+          console.warn("API me endpoint not found or unreachable, falling back to direct DB fetch", apiErr);
+        }
+
+        // 2. If REST API fails (e.g., static PWA on Vercel), fetch directly from the profiles table
+        if (!userProfile && storedUserId) {
+          const { data: profile, error: dbErr } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", storedUserId)
+            .maybeSingle();
+            
+          if (profile && !dbErr) {
+            userProfile = {
+              id: profile.id,
+              username: profile.username,
+              display_name: profile.display_name,
+              bio: profile.bio,
+              discord: profile.discord,
+              avatar_url: profile.avatar_url,
+              is_verified: profile.is_verified,
+              created_at: profile.created_at
+            };
+          }
+        }
+
+        if (userProfile) {
+          setCurrentUser(userProfile);
         } else {
           localStorage.removeItem("token");
           localStorage.removeItem("userId");
