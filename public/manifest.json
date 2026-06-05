@@ -1,7 +1,7 @@
 {
   "name": "StartOrigin",
   "short_name": "StartOrigin",
-  "description": "The decentralized anonymous wall for sharing and discussing ideas.",
+  "description": "smt",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#09080e",
