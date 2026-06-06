@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { HelpCircle, User, Shield, ShieldCheck, Github, Search, RefreshCw, AlertTriangle, Disc } from "lucide-react";
+import { HelpCircle, User, Shield, ShieldCheck, Github, Search, RefreshCw, AlertTriangle, Disc, Plus } from "lucide-react";
 import { Post, UserSessionData } from "./types";
 import AboutModal from "./components/AboutModal";
 import AccountModal from "./components/AccountModal";
@@ -403,94 +403,116 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#08070b] text-slate-200 font-sans selection:bg-purple-600/50 selection:text-white flex flex-col animate-fade-in">
       {/* 1. NAVIGATION HEADER */}
-      <header id="app-header" className="sticky top-0 bg-[#0c0a10]/95 backdrop-blur-md border-b border-purple-950/20 z-40 shrink-0">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+      <header id="app-header" className="sticky top-0 bg-[#0c0a10]/95 backdrop-blur-md border-b border-purple-950/25 z-40 shrink-0">
+        <div className="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between">
           
           {/* Logo Title */}
-          <button
-            onClick={() => {
-              setSearchQuery("");
-              fetchPosts();
-            }}
-            className="flex items-center space-x-3 text-left cursor-pointer group"
-          >
-            <img
-              src="https://startorigin2.vercel.app/icon.svg"
-              alt="StartOrigin Logo"
-              className="w-8 h-8 rounded-lg shadow-purple-500/10 shadow-lg group-hover:scale-105 transition-transform"
-              onError={(e) => {
-                // Return simple high fidelity fallback in case of transient networking hiccups
-                e.currentTarget.style.display = 'none';
-                const parent = e.currentTarget.parentElement;
-                if (parent && !parent.querySelector(".fallback-logo")) {
-                  const s = document.createElement("div");
-                  s.className = "fallback-logo w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center text-white font-extrabold text-xs shadow-lg";
-                  s.innerText = "SO";
-                  parent.prepend(s);
-                }
+          <div className="flex items-center space-x-6">
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                fetchPosts();
               }}
-            />
-            <div>
-              <h1 className="text-sm font-bold text-white font-display leading-none group-hover:text-purple-300 transition-colors">
-                <span className="text-purple-500 font-bold">Start</span><span className="text-white font-semibold">Origin</span>
+              className="flex items-center space-x-2.5 text-left cursor-pointer group"
+            >
+              <h1 className="text-lg font-bold font-display leading-none tracking-tight">
+                <span className="text-purple-500 font-bold">Start</span><span className="text-white font-semibold">origin</span>
               </h1>
-              <span className="text-[9px] text-slate-500 font-bold tracking-wider uppercase font-mono mt-0.5 block">
-                Wall
-              </span>
-            </div>
-          </button>
+            </button>
+          </div>
 
           {/* Controls Bar */}
-          <div className="flex items-center space-x-2">
-            {/* Create post toggle '+' button */}
-            <button
-              id="open-create-post-btn"
-              onClick={() => setIsPostModalOpen(true)}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-purple-600 hover:bg-purple-500 text-white flex items-center justify-center font-extrabold text-lg cursor-pointer transition-all shadow-md shadow-purple-500/10 hover:-translate-y-0.5"
-              title="Publish a post!"
-            >
-              +
-            </button>
+          <div className="flex items-center space-x-3">
+            {/* Controls bar for Desktop screens */}
+            <div className="hidden md:flex items-center space-x-3">
+              {/* Create post toggle '+' button */}
+              <button
+                id="open-create-post-btn-desktop"
+                onClick={() => setIsPostModalOpen(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white flex items-center space-x-1.5 text-xs font-semibold cursor-pointer transition-all shadow-md shadow-purple-500/10 active:scale-95"
+                title="Publish a post!"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add</span>
+              </button>
 
-            {/* Info modal trigger "?" */}
+              {/* Account modal trigger */}
+              {currentUser ? (
+                <button
+                  id="profile-nav-btn-desktop"
+                  onClick={() => setIsAccountOpen(true)}
+                  className="flex items-center space-x-2 bg-[#121118]/80 border border-purple-950/30 hover:border-purple-500/30 text-slate-200 hover:bg-slate-850 duration-100 transition-all px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
+                >
+                  <img
+                    src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username || currentUser.email || "user")}`}
+                    alt="avatar"
+                    referrerPolicy="no-referrer"
+                    className="w-4 h-4 bg-purple-950 rounded-full shrink-0 object-cover"
+                  />
+                  <span className="max-w-[100px] truncate">@{currentUser.username || currentUser.email?.split('@')[0]}</span>
+                </button>
+              ) : (
+                <button
+                  id="auth-nav-btn-desktop"
+                  onClick={() => setIsAccountOpen(true)}
+                  className="flex items-center space-x-1.5 bg-[#121118]/80 border border-purple-950/30 hover:border-purple-500/30 text-slate-200 hover:bg-slate-850 transition-all px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
+                >
+                  <User className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Profile</span>
+                </button>
+              )}
+            </div>
+
+            {/* About / Help button "?" on the right */}
             <button
               id="about-btn"
               onClick={() => setIsAboutOpen(true)}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#121118]/80 border border-slate-900 flex items-center justify-center hover:bg-slate-800 transition-colors cursor-pointer text-slate-400 font-bold shrink-0 text-xs"
-              title="About StartOrigin"
+              className="w-8 h-8 rounded-xl bg-[#121118]/80 border border-purple-950/30 hover:border-purple-500/30 hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer text-slate-400 hover:text-purple-400 shrink-0"
+              title="About Startorigin"
             >
-              ?
+              <HelpCircle className="w-4 h-4" />
             </button>
-
-            {/* Account modal trigger */}
-            {currentUser ? (
-              <button
-                id="profile-nav-btn"
-                onClick={() => setIsAccountOpen(true)}
-                className="flex items-center space-x-2 bg-[#121118]/80 border border-slate-900 text-slate-200 hover:bg-slate-850 duration-100 transition-all px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
-              >
-                <img
-                  src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username || currentUser.email || "user")}`}
-                  alt="avatar"
-                  referrerPolicy="no-referrer"
-                  className="w-4 h-4 bg-purple-950 rounded-full shrink-0 object-cover"
-                />
-                <span className="max-w-[80px] truncate hidden sm:inline">@{currentUser.username || currentUser.email?.split('@')[0]}</span>
-              </button>
-            ) : (
-              <button
-                id="auth-nav-btn"
-                onClick={() => setIsAccountOpen(true)}
-                className="flex items-center space-x-1.5 bg-[#121118]/80 border border-slate-900 text-slate-200 hover:bg-slate-850 transition-all px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
-              >
-                <User className="w-3.5 h-3.5 text-slate-400" />
-                <span className="hidden sm:inline">Account</span>
-              </button>
-            )}
           </div>
 
         </div>
       </header>
+
+      {/* 1.1 MOBILE FLOATING DOCK (Apple App style menu with border-radius) */}
+      <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-[280px]">
+        <div className="bg-[#0c0a10]/85 backdrop-blur-lg border border-purple-950/45 px-6 py-2.5 rounded-full shadow-2xl shadow-black/90 flex items-center justify-around">
+          {/* Add Item */}
+          <button
+            id="mobile-nav-add"
+            onClick={() => setIsPostModalOpen(true)}
+            className="flex flex-col items-center justify-center space-y-0.5 text-slate-400 hover:text-purple-400 active:scale-95 transition-all cursor-pointer group"
+          >
+            <Plus className="w-5 h-5 text-purple-500 group-hover:text-purple-400 transition-colors" />
+            <span className="text-[9px] font-bold tracking-wide uppercase">Add</span>
+          </button>
+
+          {/* Divider line */}
+          <div className="w-px h-6 bg-purple-950/40" />
+
+          {/* Profile Item */}
+          <button
+            id="mobile-nav-profile"
+            onClick={() => setIsAccountOpen(true)}
+            className="flex flex-col items-center justify-center space-y-0.5 text-slate-400 hover:text-purple-400 active:scale-95 transition-all cursor-pointer group"
+          >
+            {currentUser ? (
+              <img
+                src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username || currentUser.email || "user")}`}
+                alt="avatar"
+                referrerPolicy="no-referrer"
+                className="w-5 h-5 rounded-full object-cover border border-purple-600/20"
+              />
+            ) : (
+              <User className="w-5 h-5 text-slate-400 group-hover:text-purple-400 transition-colors" />
+            )}
+            <span className="text-[9px] font-bold tracking-wide uppercase">Profile</span>
+          </button>
+        </div>
+      </div>
 
       {/* 2. ADMIN PANEL MODERATION NOTIFICATION BANNER */}
       {adminPassword && (

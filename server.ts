@@ -444,6 +444,9 @@ app.post("/api/auth/register", async (req: any, res: any) => {
     if (trimmedUsername.length < 3) {
       return res.status(400).json({ success: false, error: "Username must be at least 3 characters." });
     }
+    if (!/^[a-z0-9._]+$/.test(trimmedUsername)) {
+      return res.status(400).json({ success: false, error: "Username can only contain lowercase letters, numbers, dots and underscores." });
+    }
 
     // 1. Check if username is taken in profiles
     const { data: existingProfile } = await supabase
@@ -754,8 +757,8 @@ app.post("/api/profile/update", async (req: any, res: any) => {
         if (targetUsername.length < 3) {
           return res.status(400).json({ success: false, error: "Username must be at least 3 characters." });
         }
-        if (!/^[a-zA-Z0-9_\-]+$/.test(targetUsername)) {
-          return res.status(400).json({ success: false, error: "Username can only contain letters, numbers, hyphens and underscores." });
+        if (!/^[a-z0-9._]+$/.test(targetUsername)) {
+          return res.status(400).json({ success: false, error: "Username can only contain lowercase letters, numbers, dots and underscores." });
         }
         // Check if username is already taken
         const { data: takenCheck } = await supabase

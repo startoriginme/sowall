@@ -117,8 +117,8 @@ export default function AccountModal({
       return;
     }
     const cleanUsername = regUsername.trim().toLowerCase();
-    if (!/^[a-zA-Z0-9_\-]+$/.test(cleanUsername)) {
-      setRegError("Username can only contain letters, numbers, hyphens and underscores.");
+    if (!/^[a-z0-9._]+$/.test(cleanUsername)) {
+      setRegError("Username can only contain lowercase letters, numbers, dots and underscores.");
       return;
     }
 
@@ -286,11 +286,18 @@ export default function AccountModal({
       setEditError(null);
       setEditSuccess(false);
 
-      if (editUsername !== currentUser.username) {
+      const cleanUsername = editUsername.trim().toLowerCase();
+      if (!/^[a-z0-9._]+$/.test(cleanUsername)) {
+        setEditError("Username can only contain lowercase letters, numbers, dots and underscores.");
+        setEditLoading(false);
+        return;
+      }
+
+      if (cleanUsername !== currentUser.username) {
         const { data: existingUser, error: checkError } = await supabase
           .from("profiles")
           .select("username")
-          .eq("username", editUsername)
+          .eq("username", cleanUsername)
           .neq("id", currentUser.id)
           .maybeSingle();
         
@@ -309,7 +316,7 @@ export default function AccountModal({
           bio: editBio,
           discord: editDiscord,
           avatar_url: editAvatarUrl || null,
-          username: editUsername,
+          username: cleanUsername,
         })
         .eq("id", currentUser.id);
 
@@ -579,10 +586,10 @@ export default function AccountModal({
                       <input
                         type="text"
                         required
-                        placeholder="Alphanumeric unique handle (e.g. wanderer)"
+                        placeholder="e.g. dots.and_underscores"
                         value={regUsername}
-                        onChange={(e) => setRegUsername(e.target.value)}
-                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none"
+                        onChange={(e) => setRegUsername(e.target.value.toLowerCase().replace(/\s/g, ""))}
+                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none font-mono"
                       />
                     </div>
 
@@ -704,8 +711,8 @@ export default function AccountModal({
                           type="text"
                           required
                           value={editUsername}
-                          onChange={(e) => setEditUsername(e.target.value)}
-                          placeholder="Your unique handle username"
+                          onChange={(e) => setEditUsername(e.target.value.toLowerCase().replace(/\s/g, ""))}
+                          placeholder="e.g. dots.and_underscores"
                           className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none font-mono"
                         />
                       </div>

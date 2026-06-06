@@ -52,4 +52,5 @@ export interface UserSessionData {
   is_verified: boolean;
   discord: string;
   email_verified?: boolean;
+  created_at?: string;
 }

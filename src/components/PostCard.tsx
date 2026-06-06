@@ -128,33 +128,26 @@ export default function PostCard({
     try {
       setVoteLoading(true);
       
-      // Update poll votes
-      const updatedVotes = { ...metadata.poll.votes };
-      updatedVotes[optionIndex] = (updatedVotes[optionIndex] || 0) + 1;
-      
-      const updatedVoters = [...(metadata.poll.voters || []), viewerLikerId];
-      
-      const updatedPoll = {
-        ...metadata.poll,
-        votes: updatedVotes,
-        voters: updatedVoters,
-      };
-      
-      // Update the post content with new poll data
-      const newMetadata = { ...metadata, poll: updatedPoll };
-      const newContent = `${mainContent}${separator}${JSON.stringify(newMetadata)}`;
-      
-      const { error } = await supabase
-        .from("posts")
-        .update({ content: newContent })
-        .eq("id", post.id);
-      
-      if (error) throw error;
+      const response = await fetch(`/api/posts/${post.id}/vote`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          optionIndex,
+          voterId: viewerLikerId,
+        }),
+      });
+
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData?.error || "Server rejected vote.");
+      }
       
       onPostUpdated();
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to cast vote", e);
-      alert("Cannot complete vote.");
+      alert(e.message || "Cannot complete vote.");
     } finally {
       setVoteLoading(false);
     }
@@ -235,20 +228,19 @@ export default function PostCard({
       const commentData: any = {
         post_id: post.id,
         content: commentContent.trim(),
+        created_at: new Date().toISOString(),
       };
 
       if (currentUser && !isAnonymousComment) {
         commentData.user_id = currentUser.id;
         commentData.author_name = currentUser.username;
-        commentData.is_anonymous = false;
       } else if (currentUser && isAnonymousComment) {
-        commentData.user_id = currentUser.id;
+        commentData.user_id = null;
         commentData.author_name = "Anonymous";
-        commentData.is_anonymous = true;
       } else {
         // Guest comment
+        commentData.user_id = null;
         commentData.author_name = customCommentName.trim() || "Guest";
-        commentData.is_anonymous = true;
       }
 
       const { error } = await supabase

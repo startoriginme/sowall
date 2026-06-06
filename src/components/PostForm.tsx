@@ -129,26 +129,20 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
       // Prepare post data for Supabase
       const postData: any = {
         content: finalContent,
+        created_at: new Date().toISOString(),
       };
 
       // Handle authorship
       if (currentUser && postMode === "account") {
         postData.user_id = currentUser.id;
         postData.author_name = currentUser.username;
-        postData.is_anonymous = false;
       } else if (postMode === "custom" && customName.trim()) {
         postData.author_name = customName.trim();
-        postData.is_anonymous = true;
-        if (currentUser) {
-          postData.user_id = currentUser.id;
-        }
+        postData.user_id = null;
       } else {
         // Anonymous mode
         postData.author_name = "Anonymous";
-        postData.is_anonymous = true;
-        if (currentUser) {
-          postData.user_id = currentUser.id;
-        }
+        postData.user_id = null;
       }
 
       // Insert into Supabase
