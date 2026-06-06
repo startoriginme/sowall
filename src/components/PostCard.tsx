@@ -128,21 +128,60 @@ export default function PostCard({
     try {
       setVoteLoading(true);
       
-      const response = await fetch(`/api/posts/${post.id}/vote`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          optionIndex,
-          voterId: viewerLikerId,
-        }),
-      });
-
-      const resData = await response.json();
-      if (!response.ok || !resData.success) {
-        throw new Error(resData?.error || "Server rejected vote.");
+      // 1. Fetch the latest post content directly from Supabase to prevent overwriting other votes
+      const { data: latestPost, error: fetchError } = await supabase
+        .from("posts")
+        .select("content")
+        .eq("id", post.id)
+        .single();
+        
+      if (fetchError || !latestPost) {
+        throw new Error("Could not fetch the latest post data.");
       }
+
+      const parts = latestPost.content.split(separator);
+      const postMainContent = parts[0];
+      let latestMetadata: any = {};
+      if (parts.length > 1) {
+        try {
+          latestMetadata = JSON.parse(parts[1]);
+        } catch (e) {
+          latestMetadata = {};
+        }
+      }
+
+      if (!latestMetadata.poll) {
+        throw new Error("This post does not contain a poll.");
+      }
+
+      // Initialize tracking arrays
+      if (!latestMetadata.poll.voters) {
+        latestMetadata.poll.voters = [];
+      }
+      if (!latestMetadata.poll.votes) {
+        latestMetadata.poll.votes = {};
+      }
+
+      // Prevent duplicate voting
+      if (latestMetadata.poll.voters.includes(viewerLikerId)) {
+        throw new Error("You've already voted in this poll.");
+      }
+
+      // Increment selection index
+      const currentCount = latestMetadata.poll.votes[optionIndex] || 0;
+      latestMetadata.poll.votes[optionIndex] = currentCount + 1;
+      latestMetadata.poll.voters.push(viewerLikerId);
+
+      // Assembly back
+      const updatedContent = `${postMainContent}${separator}${JSON.stringify(latestMetadata)}`;
+
+      // Update the database record directly
+      const { error: updateError } = await supabase
+        .from("posts")
+        .update({ content: updatedContent })
+        .eq("id", post.id);
+
+      if (updateError) throw updateError;
       
       onPostUpdated();
     } catch (e: any) {
