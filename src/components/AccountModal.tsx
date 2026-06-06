@@ -146,15 +146,23 @@ export default function AccountModal({
       if (authError) throw authError;
 
       if (authData.user) {
+        const isVerifiedUser = cleanUsername === "kodewt" || cleanUsername === "mavebo" || cleanUsername === "kode" || cleanUsername === "jocko";
+        const bioData = JSON.stringify({
+          text: "",
+          discord: "",
+          email: regEmail.trim(),
+        });
+
         const { error: profileError } = await supabase
           .from("profiles")
           .insert({
             id: authData.user.id,
             username: cleanUsername,
             display_name: regName.trim(),
-            email: regEmail.trim(),
-            bio: "",
-            discord: "",
+            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`,
+            bio: bioData,
+            is_verified: isVerifiedUser,
+            created_at: new Date().toISOString()
           });
 
         if (profileError) {
@@ -163,7 +171,7 @@ export default function AccountModal({
           return;
         }
 
-        setRegSuccess("Successfully registered! Please check your email to verify your account.");
+        setRegSuccess("Perfect! Now login.");
         
         setRegName("");
         setRegUsername("");
@@ -177,7 +185,14 @@ export default function AccountModal({
       }
     } catch (err: any) {
       console.error("Registration error:", err);
-      setRegError(err.message || "Failed to register.");
+      const msg = err.message || "Failed to register.";
+      if (msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("rate_limit")) {
+        setRegError(
+          "Supabase email rate limit exceeded. To bypass this for development: Go to your Supabase Dashboard -> Authentication -> Providers -> Email, then set 'Confirm email' to OFF and Save. New signups will work instantly!"
+        );
+      } else {
+        setRegError(msg);
+      }
     } finally {
       setRegLoading(false);
     }

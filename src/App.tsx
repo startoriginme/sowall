@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { HelpCircle, User, Shield, ShieldCheck, Github, Search, RefreshCw, AlertTriangle, Disc, Plus } from "lucide-react";
+import { HelpCircle, User, Shield, ShieldCheck, Github, Search, RefreshCw, AlertTriangle, Disc, Plus, FileText, Users, BadgeCheck } from "lucide-react";
 import { Post, UserSessionData } from "./types";
 import AboutModal from "./components/AboutModal";
 import AccountModal from "./components/AccountModal";
@@ -21,6 +21,9 @@ export default function App() {
 
   // Search keyword state
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<"posts" | "users">("posts");
+  const [matchingUsers, setMatchingUsers] = useState<any[]>([]);
+  const [loadingUsersSearch, setLoadingUsersSearch] = useState(false);
 
   // Authentications states
   const [currentUser, setCurrentUser] = useState<UserSessionData | null>(null);
@@ -366,6 +369,37 @@ export default function App() {
       window.removeEventListener("popstate", onPopstate);
     };
   }, [posts]);
+  
+  // Dynamic user search effect
+  useEffect(() => {
+    if (searchMode === "users" && searchQuery.trim().length > 0) {
+      const delayDebounce = setTimeout(async () => {
+        setLoadingUsersSearch(true);
+        try {
+          const query = searchQuery.trim().toLowerCase();
+          const { data, error } = await supabase
+            .from("profiles")
+            .select("*")
+            .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
+            .limit(20);
+          
+          if (!error && data) {
+            setMatchingUsers(data);
+          } else {
+            setMatchingUsers([]);
+          }
+        } catch (e) {
+          console.error("Error searching users:", e);
+          setMatchingUsers([]);
+        } finally {
+          setLoadingUsersSearch(false);
+        }
+      }, 250);
+      return () => clearTimeout(delayDebounce);
+    } else {
+      setMatchingUsers([]);
+    }
+  }, [searchQuery, searchMode]);
 
   const handleAuthSuccess = (userData: UserSessionData, shouldClose: boolean = true) => {
     setCurrentUser(userData);
@@ -547,12 +581,12 @@ export default function App() {
         </div>
 
         {/* Search and walls refresh bar */}
-        <div className="flex items-center justify-between gap-3 bg-[#0c0a10]/50 border border-slate-900 p-3 rounded-2xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0c0a10]/50 border border-slate-900 p-3 rounded-2xl">
           {/* Integrated Search Input */}
           <div className="relative flex-1">
             <input
               type="text"
-              placeholder="Search posts or handles..."
+              placeholder="Search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl pl-9 pr-4 py-2.5 text-xs text-slate-200 placeholder-slate-650 focus:outline-none"
@@ -569,8 +603,35 @@ export default function App() {
             )}
           </div>
 
-          {/* Quick Refresh walls code constraint */}
-          <div className="flex items-center space-x-2 shrink-0">
+          {/* Controls: Search Modes & Refresh Feed */}
+          <div className="flex items-center space-x-2 shrink-0 justify-between sm:justify-start">
+            {/* Elegant Pills Toggle for Search Mode */}
+            <div className="flex bg-[#121118]/80 border border-slate-900/60 rounded-xl p-1">
+              <button
+                onClick={() => setSearchMode("posts")}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center space-x-1 transition-all cursor-pointer ${
+                  searchMode === "posts"
+                    ? "bg-purple-600 text-white shadow-md shadow-purple-905/20"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <FileText className="w-3 h-3" />
+                <span>Posts</span>
+              </button>
+              <button
+                onClick={() => setSearchMode("users")}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center space-x-1 transition-all cursor-pointer ${
+                  searchMode === "users"
+                    ? "bg-purple-600 text-white shadow-md shadow-purple-905/20"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Users className="w-3 h-3" />
+                <span>Users</span>
+              </button>
+            </div>
+
+            {/* Quick Refresh walls code constraint */}
             <button
               onClick={fetchPosts}
               disabled={loadingPosts}
@@ -632,6 +693,93 @@ export default function App() {
                 </div>
               ) : null}
             </div>
+          ) : searchMode === "users" ? (
+            <>
+              <div className="flex items-center justify-between border-b border-purple-950/25 pb-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-400 font-display">
+                  {searchQuery ? "User Search Results" : "Search"}
+                </span>
+                <span className="text-[9px] text-slate-500 font-mono">
+                  {searchQuery ? `Found: ${matchingUsers.length}` : ""}
+                </span>
+              </div>
+
+              {searchQuery.trim().length === 0 ? (
+                <div className="bg-slate-950/10 border border-slate-900 rounded-2xl py-24 px-4 text-center space-y-2">
+                  <Search className="w-8 h-8 text-slate-700 mx-auto animate-pulse" />
+                  <h3 className="text-slate-400 font-semibold text-xs uppercase font-mono tracking-wider">Search Users</h3>
+                  <p className="text-slate-500 text-[10px] max-w-xs mx-auto leading-relaxed font-mono">
+                    Type handle or display name to begin searching.
+                  </p>
+                </div>
+              ) : loadingUsersSearch ? (
+                <div className="py-24 flex flex-col items-center justify-center space-y-4">
+                  <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                  <p className="text-slate-500 text-xs font-mono">LOOKING FOR USERS...</p>
+                </div>
+              ) : matchingUsers.length === 0 ? (
+                <div className="bg-slate-950/10 border border-slate-900 rounded-2xl py-16 px-4 text-center space-y-2">
+                  <h3 className="text-slate-400 font-semibold text-xs uppercase font-mono tracking-wider">No users found</h3>
+                  <p className="text-slate-500 text-[10px] max-w-sm mx-auto leading-relaxed font-mono">
+                    We couldn't find any profiles matching "{searchQuery}".
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {matchingUsers.map((user) => {
+                    let bioText = "";
+                    try {
+                      const parsed = JSON.parse(user.bio || "{}");
+                      bioText = parsed.text || parsed.bio || "";
+                    } catch (e) {
+                      bioText = user.bio || "";
+                    }
+                    return (
+                      <div key={user.id} className="bg-[#0c0a10]/60 border border-slate-900 rounded-2xl p-4 flex items-center justify-between hover:border-purple-500/20 transition-all text-left">
+                        <div className="flex items-center space-x-3.5">
+                          <img
+                            src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.username)}`}
+                            alt={user.display_name || user.username}
+                            className="w-11 h-11 rounded-xl bg-purple-950/20 border border-purple-500/10 object-cover shrink-0"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center space-x-1.5 flex-nowrap">
+                              <button
+                                onClick={() => setSelectedUsername(user.username)}
+                                className="font-bold text-slate-100 hover:text-purple-300 transition-colors text-sm text-left hover:underline truncate"
+                              >
+                                {user.display_name || user.username}
+                              </button>
+                              {(user.is_verified ||
+                                user.username.toLowerCase() === "mavebo" ||
+                                user.username.toLowerCase() === "kode" ||
+                                user.username.toLowerCase() === "kodewt" ||
+                                user.username.toLowerCase() === "jocko"
+                              ) && (
+                                <BadgeCheck className="w-4 h-4 text-purple-400 shrink-0 fill-purple-950 inline-block" />
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-500 font-mono">@{user.username}</p>
+                            {bioText && (
+                              <p className="text-xs text-slate-400 mt-1 line-clamp-1 max-w-xs md:max-w-md">
+                                {bioText}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <button
+                          onClick={() => setSelectedUsername(user.username)}
+                          className="bg-purple-600/10 hover:bg-purple-500/20 border border-purple-500/20 text-purple-400 font-bold text-xs px-3.5 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0"
+                        >
+                          View Profile
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           ) : (
             <>
               <div className="flex items-center justify-between border-b border-purple-950/25 pb-2">

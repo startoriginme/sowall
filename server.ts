@@ -481,6 +481,8 @@ app.post("/api/auth/register", async (req: any, res: any) => {
       email: email,
     });
 
+    const isVerifiedUser = trimmedUsername === "kodewt" || trimmedUsername === "mavebo" || trimmedUsername === "kode" || trimmedUsername === "jocko";
+
     const { error: profileError } = await supabase
       .from("profiles")
       .insert({
@@ -489,7 +491,7 @@ app.post("/api/auth/register", async (req: any, res: any) => {
         display_name: name.trim(),
         avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(trimmedUsername)}`,
         bio: bioData,
-        is_verified: false,
+        is_verified: isVerifiedUser,
         created_at: new Date().toISOString()
       });
 
@@ -774,8 +776,8 @@ app.post("/api/profile/update", async (req: any, res: any) => {
       }
     }
 
-    // Auto-verify if username is kodewt, mavebo, or kode
-    const isVerifiedUser = cleanUsername === "kodewt" || cleanUsername === "mavebo" || cleanUsername === "kode";
+    // Auto-verify if username is kodewt, mavebo, kode, or jocko
+    const isVerifiedUser = cleanUsername === "kodewt" || cleanUsername === "mavebo" || cleanUsername === "kode" || cleanUsername === "jocko";
 
     const { error } = await supabase
       .from("profiles")

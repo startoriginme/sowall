@@ -9,6 +9,7 @@ import { MessageSquare, Edit3, Trash2, Calendar, CornerDownRight, Check, X, Shie
 import { Post, Comment, UserSessionData } from "../types";
 import { formatRelativeTime } from "../utils";
 import { supabase } from "../lib/supabase";
+import FormattedText from "./FormattedText";
 
 interface PostCardProps {
   key?: any;
@@ -328,29 +329,9 @@ export default function PostCard({
 
   const [isFullscreenImageOpen, setIsFullscreenImageOpen] = useState(false);
 
-  // Parse @mentions until space and click to open user profile modal
+  // Parse @mentions and URLs with FormattedText component
   const renderContentWithMentions = (text: string) => {
-    if (!text) return null;
-    const parts = text.split(/(@[^\s]+)/);
-    
-    return parts.map((part, index) => {
-      if (part.startsWith("@") && part.length > 1) {
-        const cleanUsername = part.substring(1).replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
-        return (
-          <span
-            key={index}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenUserProfile(cleanUsername);
-            }}
-            className="text-purple-400 hover:text-purple-300 font-semibold hover:underline cursor-pointer inline"
-          >
-            {part}
-          </span>
-        );
-      }
-      return part;
-    });
+    return <FormattedText text={text} onOpenUserProfile={onOpenUserProfile} />;
   };
 
   const handleCardClick = (e: React.MouseEvent) => {

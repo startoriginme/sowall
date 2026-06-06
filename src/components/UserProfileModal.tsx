@@ -10,6 +10,7 @@ import { Post, Profile, UserSessionData } from "../types";
 import { formatRelativeTime, copyToClipboard } from "../utils";
 import PostCard from "./PostCard";
 import { supabase } from "../lib/supabase";
+import FormattedText from "./FormattedText";
 
 interface UserProfileModalProps {
   username: string | null;
@@ -249,7 +250,11 @@ export default function UserProfileModal({
                     <div className="md:col-span-2 bg-[#161620] border border-slate-800/80 p-4 rounded-xl space-y-2">
                       <h3 className="text-xs font-semibold uppercase text-purple-400 tracking-wider">About Me</h3>
                       <p className="text-slate-200 text-sm whitespace-pre-wrap leading-relaxed">
-                        {profileData.bio && profileData.bio.trim() !== "" ? profileData.bio : "This user has not set a bio yet."}
+                        {profileData.bio && profileData.bio.trim() !== "" ? (
+                          <FormattedText text={profileData.bio} onOpenUserProfile={onOpenUserProfile} />
+                        ) : (
+                          "This user has not set a bio yet."
+                        )}
                       </p>
                     </div>
 
