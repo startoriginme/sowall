@@ -146,7 +146,7 @@ export default function AccountModal({
       if (authError) throw authError;
 
       if (authData.user) {
-        const isVerifiedUser = cleanUsername === "kodewt" || cleanUsername === "mavebo" || cleanUsername === "kode" || cleanUsername === "jocko";
+        const isVerifiedUser = cleanUsername === "kodewt" || cleanUsername === "mavebo" || cleanUsername === "kode" || cleanUsername === "jocko" || cleanUsername === "dil_doe";
         const bioData = JSON.stringify({
           text: "",
           discord: "",

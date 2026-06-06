@@ -230,7 +230,9 @@ export default function UserProfileModal({
                         {(profileData.is_verified ||
                           profileData.username.toLowerCase() === "mavebo" ||
                           profileData.username.toLowerCase() === "kode" ||
-                          profileData.username.toLowerCase() === "kodewt"
+                          profileData.username.toLowerCase() === "kodewt" ||
+                          profileData.username.toLowerCase() === "jocko" ||
+                          profileData.username.toLowerCase() === "dil_doe"
                         ) && (
                           <BadgeCheck className="w-5 h-5 text-purple-400 shrink-0 fill-purple-950 inline-block" />
                         )}

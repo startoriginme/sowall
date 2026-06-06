@@ -754,7 +754,8 @@ export default function App() {
                                 user.username.toLowerCase() === "mavebo" ||
                                 user.username.toLowerCase() === "kode" ||
                                 user.username.toLowerCase() === "kodewt" ||
-                                user.username.toLowerCase() === "jocko"
+                                user.username.toLowerCase() === "jocko" ||
+                                user.username.toLowerCase() === "dil_doe"
                               ) && (
                                 <BadgeCheck className="w-4 h-4 text-purple-400 shrink-0 fill-purple-950 inline-block" />
                               )}

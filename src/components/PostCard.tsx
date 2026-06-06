@@ -400,7 +400,9 @@ export default function PostCard({
                     {((post.profiles as any).is_verified ||
                       (post.profiles as any).username.toLowerCase() === "mavebo" ||
                       (post.profiles as any).username.toLowerCase() === "kode" ||
-                      (post.profiles as any).username.toLowerCase() === "kodewt"
+                      (post.profiles as any).username.toLowerCase() === "kodewt" ||
+                      (post.profiles as any).username.toLowerCase() === "jocko" ||
+                      (post.profiles as any).username.toLowerCase() === "dil_doe"
                     ) && (
                       <BadgeCheck className="w-3.5 h-3.5 text-purple-400 shrink-0 fill-purple-950 inline-block" />
                     )}

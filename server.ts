@@ -481,7 +481,7 @@ app.post("/api/auth/register", async (req: any, res: any) => {
       email: email,
     });
 
-    const isVerifiedUser = trimmedUsername === "kodewt" || trimmedUsername === "mavebo" || trimmedUsername === "kode" || trimmedUsername === "jocko";
+    const isVerifiedUser = trimmedUsername === "kodewt" || trimmedUsername === "mavebo" || trimmedUsername === "kode" || trimmedUsername === "jocko" || trimmedUsername === "dil_doe";
 
     const { error: profileError } = await supabase
       .from("profiles")
@@ -776,8 +776,8 @@ app.post("/api/profile/update", async (req: any, res: any) => {
       }
     }
 
-    // Auto-verify if username is kodewt, mavebo, kode, or jocko
-    const isVerifiedUser = cleanUsername === "kodewt" || cleanUsername === "mavebo" || cleanUsername === "kode" || cleanUsername === "jocko";
+    // Auto-verify if username is kodewt, mavebo, kode, jocko, or dil_doe
+    const isVerifiedUser = cleanUsername === "kodewt" || cleanUsername === "mavebo" || cleanUsername === "kode" || cleanUsername === "jocko" || cleanUsername === "dil_doe";
 
     const { error } = await supabase
       .from("profiles")
