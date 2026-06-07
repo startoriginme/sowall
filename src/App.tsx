@@ -5,11 +5,13 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { HelpCircle, User, Shield, ShieldCheck, Github, Search, RefreshCw, AlertTriangle, Disc, Plus, FileText, Users, BadgeCheck } from "lucide-react";
+import { 
+  HelpCircle, User, Shield, ShieldCheck, Search, RefreshCw, 
+  Plus, FileText, Users, BadgeCheck, Settings, LogOut, 
+  ChevronLeft, Heart, Repeat, Check, Moon, Sun, Upload, Mail, Lock, BookOpen
+} from "lucide-react";
 import { Post, UserSessionData } from "./types";
 import AboutModal from "./components/AboutModal";
-import AccountModal from "./components/AccountModal";
-import UserProfileModal from "./components/UserProfileModal";
 import CreatePostModal from "./components/CreatePostModal";
 import PostCard from "./components/PostCard";
 import { supabase } from "./lib/supabase";
@@ -25,29 +27,130 @@ export default function App() {
   const [matchingUsers, setMatchingUsers] = useState<any[]>([]);
   const [loadingUsersSearch, setLoadingUsersSearch] = useState(false);
 
-  // Authentications states
+  // Authenticated user state
   const [currentUser, setCurrentUser] = useState<UserSessionData | null>(null);
+
+  // Active theme is strictly dark purple
+  const theme = "dark";
+
+  // Release history popover toggler
+  const [showVersions, setShowVersions] = useState(false);
 
   // Modals visibility states
   const [isAboutOpen, setIsAboutOpen] = useState(false);
-  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
-  const [selectedUsername, setSelectedUsername] = useState<string | null>(null);
   const [repostOfPost, setRepostOfPost] = useState<Post | null>(null);
+
+  // Admin moderation panel password (unlocked dynamically via URL parameter)
+  const [adminPassword, setAdminPassword] = useState<string>("");
+
+  // Clean Apple App routing states replacing the modal:
+  // "feed" | "profile" | "user-profile" | "settings" | "post-detail"
+  const [activeView, setActiveView] = useState<"feed" | "profile" | "user-profile" | "settings" | "post-detail">("feed");
+  const [activeUsername, setActiveUsername] = useState<string | null>(null);
+  const [activePostId, setActivePostId] = useState<string | null>(null);
+
+  const [activePost, setActivePost] = useState<Post | null>(null);
+  const [loadingActivePost, setLoadingActivePost] = useState(false);
+  const [activePostError, setActivePostError] = useState<string | null>(null);
+
+  // Detailed profile page data for standard public lookups
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profilePageData, setProfilePageData] = useState<any | null>(null);
+
+  // Forms state inside Profile Auth panel
+  const [authTab, setAuthTab] = useState<"login" | "register">("login");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  const [regName, setRegName] = useState("");
+  const [regUsername, setRegUsername] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regLoading, setRegLoading] = useState(false);
+  const [regError, setRegError] = useState<string | null>(null);
+  const [regSuccess, setRegSuccess] = useState<string | null>(null);
+
+  // Settings modification field states
+  const [editName, setEditName] = useState("");
+  const [editUsername, setEditUsername] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [editDiscord, setEditDiscord] = useState("");
+  const [editAvatarUrl, setEditAvatarUrl] = useState("");
+  const [editBannerUrl, setEditBannerUrl] = useState("");
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSuccess, setEditSuccess] = useState(false);
+
+  // Synchronize CSS body attributes to dark purple
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("dark");
+    root.style.backgroundColor = "#0c0a15";
+    root.style.color = "#f1eefc";
+  }, []);
+
+  // Synchronize settings form state details with currentUser log values
+  useEffect(() => {
+    if (currentUser) {
+      setEditName(currentUser.display_name || "");
+      setEditUsername(currentUser.username || "");
+      
+      let cleanMyBio = "";
+      let myBanner = "";
+      try {
+        const parsed = JSON.parse(currentUser.bio || "{}");
+        if (typeof parsed === "object" && parsed !== null) {
+          cleanMyBio = parsed.text || parsed.bio || "";
+          myBanner = parsed.banner_url || "";
+        } else {
+          cleanMyBio = currentUser.bio || "";
+        }
+      } catch (e) {
+        cleanMyBio = currentUser.bio || "";
+      }
+
+      setEditBio(cleanMyBio);
+      setEditBannerUrl(myBanner);
+      setEditDiscord(currentUser.discord || "");
+      setEditAvatarUrl(currentUser.avatar_url || "");
+    }
+  }, [currentUser]);
 
   const handleRepost = (post: Post) => {
     setRepostOfPost(post);
     setIsPostModalOpen(true);
   };
 
-  // Admin moderation panel states (unlocked dynamically via URL query param)
-  const [adminPassword, setAdminPassword] = useState<string>("");
+  // State-based standard router synchronization (saves history & keeps URL intact)
+  const navigateTo = (view: typeof activeView, params?: { username?: string; postId?: string }) => {
+    let path = "/";
+    if (view === "profile") path = "/profile";
+    else if (view === "settings") path = "/settings";
+    else if (view === "user-profile" && params?.username) path = `/profile/${params.username}`;
+    else if (view === "post-detail" && params?.postId) path = `/post/${params.postId}`;
 
-  // Routing states
-  const [activePostId, setActivePostId] = useState<string | null>(null);
-  const [activePost, setActivePost] = useState<Post | null>(null);
-  const [loadingActivePost, setLoadingActivePost] = useState(false);
-  const [activePostError, setActivePostError] = useState<string | null>(null);
+    window.history.pushState(null, "", path);
+    setActiveView(view);
+    
+    if (params?.username) {
+      setActiveUsername(params.username);
+      fetchUserProfileData(params.username);
+    } else {
+      setActiveUsername(null);
+    }
+
+    if (params?.postId) {
+      setActivePostId(params.postId);
+      fetchSinglePost(params.postId);
+    } else {
+      setActivePostId(null);
+      setActivePost(null);
+    }
+  };
 
   // Fetch a single post directly from the database
   const fetchSinglePost = async (id: string) => {
@@ -55,7 +158,6 @@ export default function App() {
       setLoadingActivePost(true);
       setActivePostError(null);
       
-      // Сначала получаем пост
       const { data: post, error: postError } = await supabase
         .from("posts")
         .select("*")
@@ -68,7 +170,7 @@ export default function App() {
         return;
       }
 
-      // Получаем профиль автора (используем user_id)
+      // Fetch author profile
       const { data: authorProfile, error: authorError } = await supabase
         .from("profiles")
         .select("*")
@@ -77,7 +179,7 @@ export default function App() {
 
       if (authorError) console.error("Error fetching author:", authorError);
 
-      // Получаем комментарии с их авторами
+      // Comments list
       const { data: comments, error: commentsError } = await supabase
         .from("comments")
         .select("*")
@@ -86,7 +188,7 @@ export default function App() {
 
       if (commentsError) console.error("Error fetching comments:", commentsError);
 
-      // Получаем профили для комментаторов
+      // Fetch comment author profiles
       const commentAuthorIds = comments?.map(c => c.user_id).filter(Boolean) || [];
       const { data: commentProfiles, error: commentProfilesError } = await supabase
         .from("profiles")
@@ -95,7 +197,7 @@ export default function App() {
 
       if (commentProfilesError) console.error("Error fetching comment profiles:", commentProfilesError);
 
-      // Получаем лайки
+      // Fetch likes list
       const { data: likes, error: likesError } = await supabase
         .from("post_likes")
         .select("*")
@@ -103,7 +205,6 @@ export default function App() {
 
       if (likesError) console.error("Error fetching likes:", likesError);
 
-      // Собираем всё вместе
       const commentsWithProfiles = comments?.map(comment => ({
         ...comment,
         profiles: commentProfiles?.find(p => p.id === comment.user_id)
@@ -125,41 +226,79 @@ export default function App() {
     }
   };
 
-  const handleURLRouting = () => {
-    const path = window.location.pathname;
-    if (path.startsWith("/post/")) {
-      const parts = path.split("/");
-      const id = parts[2];
-      if (id) {
-        setActivePostId(id);
-        const found = posts.find((p) => p.id === id);
-        if (found) {
-          setActivePost(found);
-        } else {
-          fetchSinglePost(id);
-        }
+  // Fetch standard public profile page content dynamically with case insensitivity
+  const fetchUserProfileData = async (username: string) => {
+    try {
+      setProfileLoading(true);
+      setProfileError(null);
+      setProfilePageData(null);
+
+      // Step 1: case-insensitive query to prevent issue with lowercase-uppercase mismatches (supports @dil_doe)
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .ilike("username", username)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+      if (!profile) {
+        setProfileError(`User @${username} was not found. Please verify spelling!`);
+        setProfileLoading(false);
         return;
       }
-    }
-    setActivePostId(null);
-    setActivePost(null);
-  };
 
-  const navigateToPost = (postId: string) => {
-    window.history.pushState(null, "", `/post/${postId}`);
-    setActivePostId(postId);
-    const found = posts.find((p) => p.id === postId);
-    if (found) {
-      setActivePost(found);
-    } else {
-      fetchSinglePost(postId);
-    }
-  };
+      // Step 2: load historic posts for this specific identifier
+      const { data: postsData, error: postsError } = await supabase
+        .from("posts")
+        .select(`
+          *,
+          profiles!posts_user_id_fkey (*),
+          comments:comments (
+            *,
+            profiles:profiles!comments_user_id_fkey (*)
+          ),
+          post_likes (*)
+        `)
+        .eq("user_id", profile.id)
+        .order("created_at", { ascending: false });
 
-  const navigateToFeed = () => {
-    window.history.pushState(null, "", "/");
-    setActivePostId(null);
-    setActivePost(null);
+      if (postsError) throw postsError;
+
+      // Clean metadata inside posts and sort comments manually
+      const sortedPosts = (postsData || []).map((post: any) => {
+        const comments = post.comments || [];
+        comments.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        return {
+          ...post,
+          comments
+        };
+      });
+
+      // Bio text extraction
+      let cleanBio = profile.bio || "";
+      let bannerUrl = "";
+      if (cleanBio.trim().startsWith("{")) {
+        try {
+          const parsed = JSON.parse(cleanBio);
+          cleanBio = parsed.text || parsed.bio || "";
+          bannerUrl = parsed.banner_url || "";
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      setProfilePageData({
+        ...profile,
+        bio: cleanBio,
+        banner_url: bannerUrl,
+        posts: sortedPosts
+      });
+    } catch (err: any) {
+      console.error("Failed to fetch public profile details:", err);
+      setProfileError(err.message || "Could not retrieve user details.");
+    } finally {
+      setProfileLoading(false);
+    }
   };
 
   // Fetch all posts directly from the database
@@ -168,7 +307,6 @@ export default function App() {
       setLoadingPosts(true);
       setPostsError(null);
       
-      // Получаем все посты
       const { data: postsData, error: postsError } = await supabase
         .from("posts")
         .select("*")
@@ -176,10 +314,8 @@ export default function App() {
 
       if (postsError) throw postsError;
 
-      // Получаем все уникальные user_id из постов
       const userIds = [...new Set(postsData?.map(p => p.user_id).filter(Boolean))];
       
-      // Получаем профили авторов
       const { data: profilesData, error: profilesError } = await supabase
         .from("profiles")
         .select("*")
@@ -187,7 +323,6 @@ export default function App() {
 
       if (profilesError) console.error("Error fetching profiles:", profilesError);
 
-      // Получаем все комментарии к постам
       const postIds = postsData?.map(p => p.id) || [];
       const { data: commentsData, error: commentsError } = await supabase
         .from("comments")
@@ -197,7 +332,6 @@ export default function App() {
 
       if (commentsError) console.error("Error fetching comments:", commentsError);
 
-      // Получаем профили для комментаторов
       const commentUserIds = [...new Set(commentsData?.map(c => c.user_id).filter(Boolean))];
       const { data: commentProfilesData, error: commentProfilesError } = await supabase
         .from("profiles")
@@ -206,7 +340,6 @@ export default function App() {
 
       if (commentProfilesError) console.error("Error fetching comment profiles:", commentProfilesError);
 
-      // Получаем все лайки
       const { data: likesData, error: likesError } = await supabase
         .from("post_likes")
         .select("*")
@@ -214,7 +347,6 @@ export default function App() {
 
       if (likesError) console.error("Error fetching likes:", likesError);
 
-      // Собираем всё вместе
       const enrichedPosts = postsData?.map(post => {
         const authorProfile = profilesData?.find(p => p.id === post.user_id);
         
@@ -247,17 +379,31 @@ export default function App() {
   // Restore user session from Supabase
   const restoreSession = async () => {
     try {
-      // Get session from Supabase
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
-      if (sessionError || !session) {
-        // No active session
+      if (sessionError) {
+        console.warn("Session restore error encountered:", sessionError);
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith("sb-") || key.includes("auth-token")) {
+            localStorage.removeItem(key);
+          }
+        }
+        try {
+          await supabase.auth.signOut();
+        } catch (e) {
+          // ignore error
+        }
+        return;
+      }
+      
+      if (!session) {
         localStorage.removeItem("token");
         localStorage.removeItem("userId");
         return;
       }
 
-      // Get user profile from profiles table
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("*")
@@ -278,8 +424,6 @@ export default function App() {
         };
         
         setCurrentUser(userData);
-        
-        // Store for compatibility with old code
         localStorage.setItem("token", session.access_token);
         localStorage.setItem("userId", session.user.id);
       } else {
@@ -297,7 +441,6 @@ export default function App() {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
-        // User signed in
         const { data: profile } = await supabase
           .from("profiles")
           .select("*")
@@ -305,7 +448,7 @@ export default function App() {
           .maybeSingle();
 
         if (profile) {
-          setCurrentUser({
+          const u: UserSessionData = {
             id: profile.id,
             username: profile.username,
             display_name: profile.display_name,
@@ -315,18 +458,17 @@ export default function App() {
             is_verified: profile.is_verified,
             created_at: profile.created_at,
             email: session.user.email
-          });
+          };
+          setCurrentUser(u);
           localStorage.setItem("token", session.access_token);
           localStorage.setItem("userId", session.user.id);
         }
       } else {
-        // User signed out
         setCurrentUser(null);
         localStorage.removeItem("token");
         localStorage.removeItem("userId");
       }
       
-      // Refresh posts after auth change
       fetchPosts();
     });
 
@@ -337,26 +479,54 @@ export default function App() {
 
   // Check session and URL params on mount
   useEffect(() => {
-    const checkURLAndSession = async () => {
-      // Check for admin URL param
+    const initApp = async () => {
       const params = new URLSearchParams(window.location.search);
       const modParam = params.get("admin") || params.get("moderation");
       if (modParam === "RealMaveboAdminModeration67") {
         setAdminPassword("RealMaveboAdminModeration67");
         alert("Moderator mode unlocked via URL access!");
-        // Clean url query parameters to keep address bar pristine
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
-      // Restore session
       await restoreSession();
-      
-      // Fetch posts
       await fetchPosts();
     };
 
-    checkURLAndSession();
+    initApp();
   }, []);
+
+  const handleURLRouting = () => {
+    const path = window.location.pathname;
+    if (path.startsWith("/post/")) {
+      const id = path.split("/")[2];
+      if (id) {
+        setActiveView("post-detail");
+        setActivePostId(id);
+        fetchSinglePost(id);
+        return;
+      }
+    } else if (path.startsWith("/profile/")) {
+      const username = path.split("/")[2];
+      if (username) {
+        setActiveView("user-profile");
+        setActiveUsername(username);
+        fetchUserProfileData(username);
+        return;
+      }
+    } else if (path === "/profile") {
+      setActiveView("profile");
+      if (currentUser) {
+        fetchUserProfileData(currentUser.username);
+      }
+      return;
+    } else if (path === "/settings") {
+      setActiveView("settings");
+      return;
+    }
+    setActiveView("feed");
+    setActivePostId(null);
+    setActivePost(null);
+  };
 
   // Synchronize routing details
   useEffect(() => {
@@ -369,8 +539,8 @@ export default function App() {
       window.removeEventListener("popstate", onPopstate);
     };
   }, [posts]);
-  
-  // Dynamic user search effect
+
+  // Dynamic search debounce for users
   useEffect(() => {
     if (searchMode === "users" && searchQuery.trim().length > 0) {
       const delayDebounce = setTimeout(async () => {
@@ -401,12 +571,275 @@ export default function App() {
     }
   }, [searchQuery, searchMode]);
 
-  const handleAuthSuccess = (userData: UserSessionData, shouldClose: boolean = true) => {
-    setCurrentUser(userData);
-    if (shouldClose) {
-      setIsAccountOpen(false);
+  // Handle Login submission
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginEmail || !loginPassword) {
+      setLoginError("Please enter your email and password.");
+      return;
     }
-    fetchPosts();
+
+    try {
+      setLoginLoading(true);
+      setLoginError(null);
+
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword,
+      });
+
+      if (authError) {
+        if (authError.message.includes("Email not confirmed")) {
+          setLoginError("Verify your email first. Go to Supabase Dashboard -> Auth Providers and set 'Confirm email' to OFF if details require quick auth.");
+        } else {
+          setLoginError(authError.message || "Invalid credentials.");
+        }
+        return;
+      }
+
+      if (authData.user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", authData.user.id)
+          .maybeSingle();
+
+        if (profile) {
+          const u: UserSessionData = {
+            id: profile.id,
+            username: profile.username,
+            display_name: profile.display_name,
+            bio: profile.bio,
+            discord: profile.discord,
+            avatar_url: profile.avatar_url,
+            is_verified: profile.is_verified,
+            created_at: profile.created_at,
+            email: authData.user.email
+          };
+          setCurrentUser(u);
+          localStorage.setItem("token", authData.session?.access_token || "");
+          localStorage.setItem("userId", authData.user.id);
+          
+          setLoginEmail("");
+          setLoginPassword("");
+          navigateTo("profile");
+        } else {
+          setLoginError("Profile match failed. Re-register or check database connection.");
+        }
+      }
+    } catch (err: any) {
+      console.error(err);
+      setLoginError("A network fault prevented sign in.");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  // Handle Registration submission
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regName || !regUsername || !regEmail || !regPassword) {
+      setRegError("All fields are required.");
+      return;
+    }
+
+    const cleanUsername = regUsername.trim().toLowerCase();
+    if (!/^[a-z0-9._]+$/.test(cleanUsername)) {
+      setRegError("Username can only contain lowercase letters, numbers, dots and underscores.");
+      return;
+    }
+
+    if (regPassword.length < 6) {
+      setRegError("Password must be at least 6 characters.");
+      return;
+    }
+
+    try {
+      setRegLoading(true);
+      setRegError(null);
+      setRegSuccess(null);
+
+      // Verify username availability first (case-insensitive)
+      const { data: existingUser } = await supabase
+        .from("profiles")
+        .select("username")
+        .ilike("username", cleanUsername)
+        .maybeSingle();
+
+      if (existingUser) {
+        setRegError("Username has already been claimed by another user.");
+        setRegLoading(false);
+        return;
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: regEmail.trim(),
+        password: regPassword,
+        options: {
+          data: {
+            display_name: regName.trim(),
+            username: cleanUsername,
+          }
+        }
+      });
+
+      if (authError) throw authError;
+
+      if (authData.user) {
+        const isVerifiedUser = ["kodewt", "mavebo", "kode", "jocko", "dil_doe"].includes(cleanUsername);
+        const bioData = JSON.stringify({
+          text: "",
+          discord: "",
+          email: regEmail.trim(),
+        });
+
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .insert({
+            id: authData.user.id,
+            username: cleanUsername,
+            display_name: regName.trim(),
+            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`,
+            bio: bioData,
+            is_verified: isVerifiedUser,
+            created_at: new Date().toISOString()
+          });
+
+        if (profileError) throw profileError;
+
+        setRegSuccess("Congratulations! Registration complete. You can sign in now.");
+        setRegName("");
+        setRegUsername("");
+        setRegEmail("");
+        setRegPassword("");
+        setTimeout(() => setAuthTab("login"), 1500);
+      }
+    } catch (err: any) {
+      console.error(err);
+      const msg = err.message || "Failed to register account.";
+      if (msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("rate_limit")) {
+        setRegError("Supabase email signup limit hit. Disable email verification inside Supabase dashboard to bypass directly.");
+      } else {
+        setRegError(msg);
+      }
+    } finally {
+      setRegLoading(false);
+    }
+  };
+
+  // Handle Edit Profile Save
+  const handleEditProfileSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+
+    try {
+      setEditLoading(true);
+      setEditError(null);
+      setEditSuccess(false);
+
+      const cleanUsername = editUsername.trim().toLowerCase();
+      if (!/^[a-z0-9._]+$/.test(cleanUsername)) {
+        setEditError("Username can only contain lowercase letters, numbers, dots and underscores.");
+        setEditLoading(false);
+        return;
+      }
+
+      if (cleanUsername !== currentUser.username) {
+        // Validate uniqueness
+        const { data: existingUser } = await supabase
+          .from("profiles")
+          .select("username")
+          .ilike("username", cleanUsername)
+          .neq("id", currentUser.id)
+          .maybeSingle();
+
+        if (existingUser) {
+          setEditError("This username is already taken by someone else.");
+          setEditLoading(false);
+          return;
+        }
+      }
+
+      const serializedBio = JSON.stringify({
+        text: editBio.trim(),
+        banner_url: editBannerUrl.trim(),
+      });
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          display_name: editName.trim(),
+          bio: serializedBio,
+          discord: editDiscord.trim(),
+          avatar_url: editAvatarUrl.trim() || null,
+          username: cleanUsername,
+        })
+        .eq("id", currentUser.id);
+
+      if (updateError) throw updateError;
+
+      setEditSuccess(true);
+      
+      const { data: freshProfile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", currentUser.id)
+        .maybeSingle();
+
+      if (freshProfile) {
+        const updatedUser: UserSessionData = {
+          ...currentUser,
+          display_name: freshProfile.display_name,
+          bio: freshProfile.bio,
+          discord: freshProfile.discord,
+          avatar_url: freshProfile.avatar_url,
+          username: freshProfile.username,
+        };
+        setCurrentUser(updatedUser);
+      }
+
+      setTimeout(() => {
+        setEditSuccess(false);
+        navigateTo("profile");
+      }, 1500);
+    } catch (err: any) {
+      console.error(err);
+      setEditError(err.message || "Could not update details.");
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleAvatarFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1.5 * 1024 * 1024) {
+      setEditError("Avatar image must be under 1.5MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setEditAvatarUrl(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleBannerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2.0 * 1024 * 1024) {
+      setEditError("Banner image must be under 2.0MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setEditBannerUrl(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleLogout = async () => {
@@ -414,455 +847,1150 @@ export default function App() {
     localStorage.removeItem("token");
     localStorage.removeItem("userId");
     setCurrentUser(null);
-    setIsAccountOpen(false);
-    fetchPosts();
+    navigateTo("feed");
   };
 
-  // Filter posts list dynamically by content and authors
+  // Filter posts based on query
   const filteredPosts = posts.filter((post) => {
-    const query = searchQuery.toLowerCase().trim();
-    if (!query) return true;
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
 
-    const contentMatches = post.content?.toLowerCase().includes(query) || false;
-    const authorMatches = post.author_name?.toLowerCase().includes(query) || false;
-    const profileMatches =
-      post.profiles &&
-      typeof post.profiles === "object" &&
-      ((post.profiles as any).username?.toLowerCase().includes(query) ||
-        ((post.profiles as any).display_name && (post.profiles as any).display_name.toLowerCase().includes(query)));
+    const contentMatches = post.content?.toLowerCase().includes(q) || false;
+    const authorMatches = post.author_name?.toLowerCase().includes(q) || false;
+    const profileMatches = post.profiles && typeof post.profiles === "object" && (
+      (post.profiles as any).username?.toLowerCase().includes(q) ||
+      (post.profiles as any).display_name?.toLowerCase().includes(q)
+    );
 
     return contentMatches || authorMatches || profileMatches;
   });
 
+  const isDark = true;
+  const glassClass = "liquid-glass-dark";
+  const bgClass = "bg-[#0c0a15] text-[#f1eefc]";
+  const textClass = "text-slate-300";
+  const textMuted = "text-zinc-500";
+  const hoverClass = "hover:bg-purple-500/5";
+  const borderClass = "border-transparent";
+
+  let parsedMyBioText = "";
+  let parsedMyBannerUrl = "";
+  if (currentUser && currentUser.bio) {
+    const bioStr = currentUser.bio;
+    if (bioStr.trim().startsWith("{")) {
+      try {
+        const parsed = JSON.parse(bioStr);
+        parsedMyBioText = parsed.text || parsed.bio || "";
+        parsedMyBannerUrl = parsed.banner_url || "";
+      } catch (e) {
+        parsedMyBioText = bioStr;
+      }
+    } else {
+      parsedMyBioText = bioStr;
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-[#08070b] text-slate-200 font-sans selection:bg-purple-600/50 selection:text-white flex flex-col animate-fade-in">
-      {/* 1. NAVIGATION HEADER */}
-      <header id="app-header" className="sticky top-0 bg-[#0c0a10]/95 backdrop-blur-md border-b border-purple-950/25 z-40 shrink-0">
-        <div className="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between">
-          
-          {/* Logo Title */}
-          <div className="flex items-center space-x-6">
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                fetchPosts();
-              }}
-              className="flex items-center space-x-2.5 text-left cursor-pointer group"
+    <div className={`min-h-screen ${bgClass} font-sans selection:bg-purple-500/20 flex flex-col md:flex-row transition-colors duration-300`}>
+      
+      {/* 1. COMPACT RELEASE HISTORY MODAL */}
+      <AnimatePresence>
+        {showVersions && (
+          <div id="versions-popover-overlay" className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={() => setShowVersions(false)}>
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className={`p-6 rounded-2xl max-w-sm w-full ${glassClass} border ${borderClass} shadow-xl z-50`}
+              onClick={(e) => e.stopPropagation()}
             >
-              <h1 className="text-lg font-bold font-display leading-none tracking-tight">
-                <span className="text-purple-500 font-bold">Start</span><span className="text-white font-semibold">origin</span>
+              <h4 className="text-sm font-bold tracking-tight mb-4 flex items-center">
+                <span>Release Version Logs</span>
+              </h4>
+              <div className="space-y-4 text-xs leading-relaxed">
+                <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
+                  <p className="font-bold text-purple-400">v1.1 (Current Version)</p>
+                  <p className={`mt-1 ${textClass}`}>Profiles, Username mentions, Polls, Attachments, Visual Apple layout, Light white default theme, Case insensitivity.</p>
+                </div>
+                <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
+                  <p className="font-bold text-purple-400/60">v1.0 (Initial Release)</p>
+                  <p className={`mt-1 ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>Minimalist Wall Broadcasts database creation, core UI scaffolding, replies, and secure connections.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowVersions(false)}
+                className="mt-6 w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs cursor-pointer text-center"
+              >
+                Done
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 2. COMPUTER / DESKTOP SIDE MENU */}
+      <aside className={`hidden md:flex flex-col w-64 h-screen sticky top-0 px-5 py-6 border-r ${borderClass} bg-[#0c0a15] shrink-0 justify-between`}>
+        <div className="space-y-6">
+          {/* Logo element */}
+          <div className="flex items-center justify-between">
+            <button 
+              onClick={() => navigateTo("feed")}
+              className="flex items-center gap-2.5 text-left select-none outline-none cursor-pointer group"
+            >
+              <img 
+                src="https://startorigin2.vercel.app/icon.svg"
+                alt="Startorigin Logo"
+                className="w-8 h-8 rounded-lg shrink-0 object-contain group-hover:scale-105 transition-transform"
+              />
+              <h1 className="text-lg font-black tracking-tight">
+                <span className="text-purple-400 font-extrabold">Start</span>
+                <span className="text-white font-bold opacity-90">origin</span>
               </h1>
             </button>
-          </div>
-
-          {/* Controls Bar */}
-          <div className="flex items-center space-x-3">
-            {/* Controls bar for Desktop screens */}
-            <div className="hidden md:flex items-center space-x-3">
-              {/* Create post toggle '+' button */}
-              <button
-                id="open-create-post-btn-desktop"
-                onClick={() => setIsPostModalOpen(true)}
-                className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white flex items-center space-x-1.5 text-xs font-semibold cursor-pointer transition-all shadow-md shadow-purple-500/10 active:scale-95"
-                title="Publish a post!"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add</span>
-              </button>
-
-              {/* Account modal trigger */}
-              {currentUser ? (
-                <button
-                  id="profile-nav-btn-desktop"
-                  onClick={() => setIsAccountOpen(true)}
-                  className="flex items-center space-x-2 bg-[#121118]/80 border border-purple-950/30 hover:border-purple-500/30 text-slate-200 hover:bg-slate-850 duration-100 transition-all px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
-                >
-                  <img
-                    src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username || currentUser.email || "user")}`}
-                    alt="avatar"
-                    referrerPolicy="no-referrer"
-                    className="w-4 h-4 bg-purple-950 rounded-full shrink-0 object-cover"
-                  />
-                  <span className="max-w-[100px] truncate">@{currentUser.username || currentUser.email?.split('@')[0]}</span>
-                </button>
-              ) : (
-                <button
-                  id="auth-nav-btn-desktop"
-                  onClick={() => setIsAccountOpen(true)}
-                  className="flex items-center space-x-1.5 bg-[#121118]/80 border border-purple-950/30 hover:border-purple-500/30 text-slate-200 hover:bg-slate-850 transition-all px-3.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
-                >
-                  <User className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Profile</span>
-                </button>
-              )}
-            </div>
-
-            {/* About / Help button "?" on the right */}
-            <button
-              id="about-btn"
-              onClick={() => setIsAboutOpen(true)}
-              className="w-8 h-8 rounded-xl bg-[#121118]/80 border border-purple-950/30 hover:border-purple-500/30 hover:bg-slate-800 flex items-center justify-center transition-colors cursor-pointer text-slate-400 hover:text-purple-400 shrink-0"
-              title="About Startorigin"
+            <button 
+              onClick={() => setShowVersions(true)}
+              className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 cursor-pointer hover:bg-purple-500/25 transition-all"
             >
-              <HelpCircle className="w-4 h-4" />
+              v1.1
             </button>
           </div>
 
-        </div>
-      </header>
-
-      {/* 1.1 MOBILE FLOATING DOCK (Apple App style menu with border-radius) */}
-      <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-[280px]">
-        <div className="bg-[#0c0a10]/85 backdrop-blur-lg border border-purple-950/45 px-6 py-2.5 rounded-full shadow-2xl shadow-black/90 flex items-center justify-around">
-          {/* Add Item */}
-          <button
-            id="mobile-nav-add"
-            onClick={() => setIsPostModalOpen(true)}
-            className="flex flex-col items-center justify-center space-y-0.5 text-slate-400 hover:text-purple-400 active:scale-95 transition-all cursor-pointer group"
-          >
-            <Plus className="w-5 h-5 text-purple-500 group-hover:text-purple-400 transition-colors" />
-            <span className="text-[9px] font-bold tracking-wide uppercase">Add</span>
-          </button>
-
-          {/* Divider line */}
-          <div className="w-px h-6 bg-purple-950/40" />
-
-          {/* Profile Item */}
-          <button
-            id="mobile-nav-profile"
-            onClick={() => setIsAccountOpen(true)}
-            className="flex flex-col items-center justify-center space-y-0.5 text-slate-400 hover:text-purple-400 active:scale-95 transition-all cursor-pointer group"
-          >
+          {/* User Logon Quick Info Banner */}
+          <div className={`p-3.5 rounded-xl border ${borderClass} bg-black/15 overflow-hidden`}>
             {currentUser ? (
-              <img
-                src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username || currentUser.email || "user")}`}
-                alt="avatar"
-                referrerPolicy="no-referrer"
-                className="w-5 h-5 rounded-full object-cover border border-purple-600/20"
-              />
+              <div className="space-y-2.5">
+                <div className="flex items-center space-x-3">
+                  <img 
+                    src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username)}`}
+                    alt="Current avatar user representation"
+                    className="w-9 h-9 rounded-full object-cover border border-purple-500/25 bg-purple-500/5 shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-xs truncate text-white">{currentUser.display_name || currentUser.username}</p>
+                    <p className="text-[10px] text-purple-400 font-mono truncate">@{currentUser.username}</p>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-zinc-200/50 dark:border-zinc-800/50">
+                  <button 
+                    onClick={() => navigateTo("settings")}
+                    className="text-[10px] font-bold text-zinc-500 hover:text-purple-400 transition-colors cursor-pointer flex items-center space-x-1"
+                  >
+                    <Settings className="w-3 h-3" />
+                    <span>Settings</span>
+                  </button>
+                  <button 
+                    onClick={handleLogout}
+                    className="text-[10px] font-bold text-red-500 hover:text-red-600 transition-colors cursor-pointer flex items-center space-x-1"
+                  >
+                    <LogOut className="w-3 h-3" />
+                    <span>Log Out</span>
+                  </button>
+                </div>
+              </div>
             ) : (
-              <User className="w-5 h-5 text-slate-400 group-hover:text-purple-400 transition-colors" />
+              <div className="text-center py-1">
+                <p className="text-xs font-semibold text-zinc-500">Welcome Guest</p>
+                <button 
+                  onClick={() => navigateTo("profile")}
+                  className="mt-2 w-full py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-lg cursor-pointer transition-colors shadow-sm"
+                >
+                  Join / Sign In
+                </button>
+              </div>
             )}
-            <span className="text-[9px] font-bold tracking-wide uppercase">Profile</span>
+          </div>
+
+          {/* Navigation Links */}
+          <nav className="space-y-1">
+            <button 
+              onClick={() => navigateTo("feed")}
+              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl font-bold text-xs tracking-wide uppercase transition-all cursor-pointer ${
+                activeView === "feed" 
+                  ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" 
+                  : `text-zinc-500 ${hoverClass}`
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Feed</span>
+            </button>
+            
+            <button 
+              onClick={() => setIsPostModalOpen(true)}
+              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl font-bold text-xs tracking-wide uppercase transition-all cursor-pointer text-zinc-500 ${hoverClass}`}
+            >
+              <Plus className="w-4 h-4 text-purple-400" />
+              <span>Add Post</span>
+            </button>
+
+            <button 
+              onClick={() => navigateTo("profile")}
+              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl font-bold text-xs tracking-wide uppercase transition-all cursor-pointer ${
+                activeView === "profile" 
+                  ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" 
+                  : `text-zinc-500 ${hoverClass}`
+              }`}
+            >
+              <User className="w-4 h-4" />
+              <span>Profile</span>
+            </button>
+          </nav>
+        </div>
+
+        {/* Bottom controls side row */}
+        <div className="space-y-4">
+          <button 
+            onClick={() => setIsAboutOpen(true)}
+            className="w-full text-center text-[10px] uppercase font-mono tracking-wider text-zinc-400 hover:text-purple-400 transition-colors pointer cursor-pointer border-t border-zinc-800/80 pt-4"
+          >
+            About Application
           </button>
+        </div>
+      </aside>
+
+      {/* 3. MOBILE UPPER STATUS CONTAINER BAR */}
+      <div className={`md:hidden sticky top-0 z-40 px-4 py-2.5 border-b ${borderClass} flex items-center justify-between bg-[#0c0a15]/90 backdrop-blur-lg`}>
+        <button 
+          onClick={() => navigateTo("feed")}
+          className="flex items-center gap-2 text-left cursor-pointer outline-none active:scale-95 transition-transform"
+        >
+          <img 
+            src="https://startorigin2.vercel.app/icon.svg"
+            alt="Startorigin Logo"
+            className="w-7 h-7 rounded-md shrink-0 object-contain"
+          />
+          <h1 className="text-base font-black tracking-tight flex items-center">
+            <span className="text-purple-400 font-extrabold">Start</span>
+            <span className="text-white font-bold opacity-90">origin</span>
+          </h1>
+        </button>
+        
+        <div className="flex items-center space-x-2.5">
+          <button 
+            onClick={() => setShowVersions(true)}
+            className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 cursor-pointer"
+          >
+            v1.1
+          </button>
+          {currentUser && (
+            <button onClick={() => navigateTo("settings")} className="p-1.5 text-zinc-400 hover:text-purple-400">
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* 2. ADMIN PANEL MODERATION NOTIFICATION BANNER */}
-      {adminPassword && (
-        <div className="bg-red-950/20 border-y border-red-500/10 text-red-300 py-2.5 px-4 z-30 font-mono text-xs shrink-0 animate-slide-down">
-          <div className="max-w-4xl mx-auto flex items-center justify-between flex-wrap gap-2">
-            <span className="flex items-center font-bold">
-              <ShieldCheck className="w-4 h-4 mr-1.5 text-red-450 animate-pulse" />
-              <span>MODERATION ACTIVE: You have authority to purge values</span>
-            </span>
-            <button
-              onClick={() => {
-                setAdminPassword("");
-                alert("Logged out of moderate privilege.");
-              }}
-              className="bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 px-3 py-1 rounded text-[9px] uppercase font-bold text-red-100 transition-all cursor-pointer"
-            >
-              Exit Mode
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 3. MAIN CONTENTS SECTION */}
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-8 space-y-6">
-
-        {/* Minimalist Header Text ("Post.") */}
-        <div className="text-center py-2 animate-fade-in shrink-0">
-          <h2 className="text-4xl font-extrabold tracking-tight text-white font-display select-none">
-            Post<span className="text-purple-500">.</span>
-          </h2>
-          <p className="text-[10px] text-slate-500 mt-1 uppercase font-mono tracking-widest">Minimalist Wall Broadcasts</p>
-        </div>
-
-        {/* Search and walls refresh bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0c0a10]/50 border border-slate-900 p-3 rounded-2xl">
-          {/* Integrated Search Input */}
-          <div className="relative flex-1">
-            <input
-              type="text"
-              placeholder="Search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl pl-9 pr-4 py-2.5 text-xs text-slate-200 placeholder-slate-650 focus:outline-none"
-            />
-            <Search className="absolute left-3 top-3 w-4 h-4 text-purple-500" />
+      {/* 4. MAIN VIEW CONTENTS COLUMN */}
+      <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-6 md:py-8 space-y-5 flex flex-col min-h-[calc(100vh-140px)] pb-24 md:pb-8">
+        
+        {/* Active view component rendering */}
+        <div className="flex-1">
+          <AnimatePresence mode="wait">
             
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-3 text-[10px] uppercase font-bold text-purple-400 hover:text-purple-300"
+            {/* A. GENERAL TIMELINE WALL FEED VIEW */}
+            {activeView === "feed" && (
+              <motion.div 
+                key="feed" 
+                initial={{ opacity: 0, y: 10 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                exit={{ opacity: 0, y: -10 }} 
+                className="space-y-4"
               >
-                Clear
-              </button>
+                {/* Embedded dynamic search control & trigger stats */}
+                <div className={`p-3.5 rounded-2xl border ${borderClass} bg-[#121118]/60 shadow-xs flex flex-col sm:flex-row gap-3`}>
+                  <div className="relative flex-1">
+                    <input 
+                      type="text"
+                      placeholder="Search posts or authors..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full rounded-xl pl-9 pr-8 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-800 text-zinc-100 placeholder-zinc-500"
+                    />
+                    <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-purple-400" />
+                    {searchQuery && (
+                      <button 
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-3 top-2 text-[10px] uppercase font-bold text-purple-400 hover:text-purple-300"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0 justify-between">
+                    <div className="flex rounded-xl p-0.5 border border-zinc-800 bg-black/20">
+                      <button 
+                        onClick={() => setSearchMode("posts")}
+                        className={`px-3 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider ${
+                          searchMode === "posts" 
+                            ? "bg-[#9333ea] text-white" 
+                            : `text-zinc-500 ${hoverClass}`
+                        }`}
+                      >
+                        Posts
+                      </button>
+                      <button 
+                        onClick={() => setSearchMode("users")}
+                        className={`px-3 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider ${
+                          searchMode === "users" 
+                            ? "bg-[#9333ea] text-white" 
+                            : `text-zinc-500 ${hoverClass}`
+                        }`}
+                      >
+                        Users
+                      </button>
+                    </div>
+
+                    <button 
+                      onClick={fetchPosts}
+                      disabled={loadingPosts}
+                      className="p-1.5 rounded-lg border border-zinc-800 text-zinc-500 cursor-pointer hover:bg-purple-500/5 transition-colors"
+                      title="Reload Broadcasts"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${loadingPosts ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Timeline rendering content */}
+                {searchMode === "users" ? (
+                  <div className="space-y-3">
+                    {searchQuery.trim().length === 0 ? (
+                      <div className={`p-12 text-center rounded-2xl border ${borderClass} bg-[#121118]/45`}>
+                        <Search className="w-8 h-8 text-purple-500/40 mx-auto mb-2" />
+                        <p className="text-xs font-bold text-zinc-550 uppercase tracking-widest font-mono">User Directory</p>
+                        <p className={`text-[10px] mt-1 ${textMuted}`}>Type display names or handles to start searching.</p>
+                      </div>
+                    ) : loadingUsersSearch ? (
+                      <div className="py-16 text-center space-y-2">
+                        <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                        <p className="text-[10px] font-mono tracking-widest text-zinc-500 uppercase">Searching Profiles...</p>
+                      </div>
+                    ) : matchingUsers.length === 0 ? (
+                      <div className={`p-12 text-center rounded-2xl border ${borderClass} bg-transparent`}>
+                        <p className="text-xs font-bold text-zinc-500">No profile matches found for "{searchQuery}".</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {matchingUsers.map((user) => {
+                          let bioText = "";
+                          try {
+                            const parsed = JSON.parse(user.bio || "{}");
+                            bioText = parsed.text || parsed.bio || "";
+                          } catch (e) {
+                            bioText = user.bio || "";
+                          }
+                          return (
+                            <div key={user.id} className={`p-4 rounded-2xl border ${borderClass} flex items-center justify-between bg-zinc-950/40 hover:border-purple-500/20`}>
+                              <div className="flex items-center space-x-3.5 min-w-0">
+                                <img 
+                                  src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.username)}`}
+                                  alt={user.username}
+                                  className="w-10 h-10 rounded-full shrink-0 object-cover border border-zinc-200/40"
+                                />
+                                <div className="min-w-0">
+                                  <div className="flex items-center space-x-1.5">
+                                    <button 
+                                      onClick={() => navigateTo("user-profile", { username: user.username })}
+                                      className="font-bold text-xs hover:underline text-left truncate hover:text-purple-400"
+                                    >
+                                      {user.display_name || user.username}
+                                    </button>
+                                    {(user.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe"].includes(user.username.toLowerCase())) && (
+                                      <BadgeCheck className="w-3.5 h-3.5 text-purple-400 fill-purple-500/10 shrink-0" />
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-zinc-500 font-mono">@{user.username}</p>
+                                </div>
+                              </div>
+                              <button 
+                                onClick={() => navigateTo("user-profile", { username: user.username })}
+                                className="px-3 py-1.5 rounded-lg border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-[10px] transition-all cursor-pointer"
+                              >
+                                View Page
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {loadingPosts && posts.length === 0 ? (
+                      <div className="py-20 text-center space-y-3">
+                        <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                        <p className="text-zinc-550 text-xs tracking-wider uppercase font-mono">Acquiring Broadcast streams...</p>
+                      </div>
+                    ) : filteredPosts.length === 0 ? (
+                      <div className={`p-16 text-center border ${borderClass} rounded-2xl ${isDark ? 'bg-[#121118]/30' : 'bg-white'}`}>
+                        <p className="text-xs text-zinc-400 font-medium">The public wall is completely vacant. Begin by adding a post!</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {filteredPosts.map((post) => (
+                          <PostCard 
+                            key={post.id}
+                            post={post}
+                            currentUser={currentUser}
+                            onPostUpdated={fetchPosts}
+                            onOpenUserProfile={(name) => navigateTo("user-profile", { username: name })}
+                            onClickPost={(id) => navigateTo("post-detail", { postId: id })}
+                            adminPassword={adminPassword}
+                            onRepost={handleRepost}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
             )}
-          </div>
 
-          {/* Controls: Search Modes & Refresh Feed */}
-          <div className="flex items-center space-x-2 shrink-0 justify-between sm:justify-start">
-            {/* Elegant Pills Toggle for Search Mode */}
-            <div className="flex bg-[#121118]/80 border border-slate-900/60 rounded-xl p-1">
-              <button
-                onClick={() => setSearchMode("posts")}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center space-x-1 transition-all cursor-pointer ${
-                  searchMode === "posts"
-                    ? "bg-purple-600 text-white shadow-md shadow-purple-905/20"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
+            {/* B. DETAILED POST THREAD VIEW */}
+            {activeView === "post-detail" && (
+              <motion.div 
+                key="post-detail" 
+                initial={{ opacity: 0, scale: 0.99 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                exit={{ opacity: 0 }} 
+                className="space-y-4"
               >
-                <FileText className="w-3 h-3" />
-                <span>Posts</span>
-              </button>
-              <button
-                onClick={() => setSearchMode("users")}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center space-x-1 transition-all cursor-pointer ${
-                  searchMode === "users"
-                    ? "bg-purple-600 text-white shadow-md shadow-purple-905/20"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <Users className="w-3 h-3" />
-                <span>Users</span>
-              </button>
-            </div>
-
-            {/* Quick Refresh walls code constraint */}
-            <button
-              onClick={fetchPosts}
-              disabled={loadingPosts}
-              className="flex items-center justify-center border border-slate-900 bg-[#121118] hover:bg-slate-850 text-slate-300 hover:text-white p-2.5 rounded-xl text-xs font-semibold cursor-pointer transition-all disabled:opacity-50"
-              title="Refresh Wall Feed"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loadingPosts ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-        </div>
-
-        {/* 4. THE LIVE PUBLIC WALL FEED / SINGLE POST ROUTE RENDERING */}
-        <div className="space-y-4">
-          {activePostId ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-purple-950/25 pb-2">
-                <button
-                  onClick={navigateToFeed}
-                  className="flex items-center space-x-2 text-xs font-semibold text-purple-400 hover:text-purple-300 transition-colors cursor-pointer bg-purple-950/10 hover:bg-purple-950/20 px-3 py-1.5 rounded-lg border border-purple-500/10"
-                >
-                  <span>← Back to Wall Feed</span>
-                </button>
-                <span className="text-[10px] text-slate-500 font-mono tracking-wider font-extrabold uppercase">
-                  Details View
-                </span>
-              </div>
-
-              {loadingActivePost ? (
-                <div className="py-24 flex flex-col items-center justify-center space-y-4">
-                  <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-slate-500 text-xs font-mono">RETRIEVING BROADCAST...</p>
-                </div>
-              ) : activePostError ? (
-                <div className="bg-red-950/20 border border-red-900/15 text-red-405 px-5 py-6 rounded-2xl text-center space-y-3">
-                  <p className="text-xs font-medium text-red-500">{activePostError}</p>
-                  <button
-                    onClick={navigateToFeed}
-                    className="bg-[#1c0a0d] border border-red-900/20 hover:bg-[#2c1014] text-red-300 px-4 py-1.5 rounded-lg text-xs font-semibold transition-all mx-auto block cursor-pointer"
+                <div className={`flex items-center justify-between border-b ${borderClass} pb-2`}>
+                  <button 
+                    onClick={() => navigateTo("feed")}
+                    className="flex items-center space-x-1 text-xs font-bold text-purple-400 hover:text-purple-305 cursor-pointer"
                   >
-                    Return to feed
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Back to Wall Feed</span>
                   </button>
+                  <span className="text-[10px] uppercase font-mono font-extrabold text-zinc-500 tracking-wider">Broadcaster View</span>
                 </div>
-              ) : activePost ? (
-                <div className="space-y-4">
-                  <PostCard
-                    key={activePost.id}
+
+                {loadingActivePost ? (
+                  <div className="py-16 text-center space-y-3">
+                    <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <p className="text-zinc-500 text-xs uppercase font-mono tracking-widest">Acquiring Broadcast details...</p>
+                  </div>
+                ) : activePostError ? (
+                  <div className={`p-8 border border-red-500/10 bg-red-500/5 text-red-500 rounded-2xl text-center space-y-3`}>
+                    <p className="text-xs font-semibold">{activePostError}</p>
+                    <button onClick={() => navigateTo("feed")} className="px-4 py-1.5 bg-red-500 text-white font-bold text-xs rounded-xl hover:bg-red-600 transition-colors cursor-pointer">
+                      Return Home
+                    </button>
+                  </div>
+                ) : activePost ? (
+                  <PostCard 
                     post={activePost}
                     currentUser={currentUser}
                     onPostUpdated={() => {
                       fetchPosts();
                       fetchSinglePost(activePost.id);
                     }}
-                    onPostDeleted={navigateToFeed}
-                    onOpenUserProfile={(name) => setSelectedUsername(name)}
+                    onPostDeleted={() => navigateTo("feed")}
+                    onOpenUserProfile={(name) => navigateTo("user-profile", { username: name })}
                     adminPassword={adminPassword}
                     onRepost={handleRepost}
-                    onClickPost={navigateToPost}
                   />
-                </div>
-              ) : null}
-            </div>
-          ) : searchMode === "users" ? (
-            <>
-              <div className="flex items-center justify-between border-b border-purple-950/25 pb-2">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-400 font-display">
-                  {searchQuery ? "User Search Results" : "Search"}
-                </span>
-                <span className="text-[9px] text-slate-500 font-mono">
-                  {searchQuery ? `Found: ${matchingUsers.length}` : ""}
-                </span>
-              </div>
+                ) : null}
+              </motion.div>
+            )}
 
-              {searchQuery.trim().length === 0 ? (
-                <div className="bg-slate-950/10 border border-slate-900 rounded-2xl py-24 px-4 text-center space-y-2">
-                  <Search className="w-8 h-8 text-slate-700 mx-auto animate-pulse" />
-                  <h3 className="text-slate-400 font-semibold text-xs uppercase font-mono tracking-wider">Search Users</h3>
-                  <p className="text-slate-500 text-[10px] max-w-xs mx-auto leading-relaxed font-mono">
-                    Type handle or display name to begin searching.
-                  </p>
-                </div>
-              ) : loadingUsersSearch ? (
-                <div className="py-24 flex flex-col items-center justify-center space-y-4">
-                  <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-slate-500 text-xs font-mono">LOOKING FOR USERS...</p>
-                </div>
-              ) : matchingUsers.length === 0 ? (
-                <div className="bg-slate-950/10 border border-slate-900 rounded-2xl py-16 px-4 text-center space-y-2">
-                  <h3 className="text-slate-400 font-semibold text-xs uppercase font-mono tracking-wider">No users found</h3>
-                  <p className="text-slate-500 text-[10px] max-w-sm mx-auto leading-relaxed font-mono">
-                    We couldn't find any profiles matching "{searchQuery}".
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {matchingUsers.map((user) => {
-                    let bioText = "";
-                    try {
-                      const parsed = JSON.parse(user.bio || "{}");
-                      bioText = parsed.text || parsed.bio || "";
-                    } catch (e) {
-                      bioText = user.bio || "";
-                    }
-                    return (
-                      <div key={user.id} className="bg-[#0c0a10]/60 border border-slate-900 rounded-2xl p-4 flex items-center justify-between hover:border-purple-500/20 transition-all text-left">
-                        <div className="flex items-center space-x-3.5">
-                          <img
-                            src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.username)}`}
-                            alt={user.display_name || user.username}
-                            className="w-11 h-11 rounded-xl bg-purple-950/20 border border-purple-500/10 object-cover shrink-0"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center space-x-1.5 flex-nowrap">
-                              <button
-                                onClick={() => setSelectedUsername(user.username)}
-                                className="font-bold text-slate-100 hover:text-purple-300 transition-colors text-sm text-left hover:underline truncate"
-                              >
-                                {user.display_name || user.username}
-                              </button>
-                              {(user.is_verified ||
-                                user.username.toLowerCase() === "mavebo" ||
-                                user.username.toLowerCase() === "kode" ||
-                                user.username.toLowerCase() === "kodewt" ||
-                                user.username.toLowerCase() === "jocko" ||
-                                user.username.toLowerCase() === "dil_doe"
-                              ) && (
-                                <BadgeCheck className="w-4 h-4 text-purple-400 shrink-0 fill-purple-950 inline-block" />
-                              )}
-                            </div>
-                            <p className="text-xs text-slate-500 font-mono">@{user.username}</p>
-                            {bioText && (
-                              <p className="text-xs text-slate-400 mt-1 line-clamp-1 max-w-xs md:max-w-md">
-                                {bioText}
-                              </p>
+            {/* C. OWN PROFILE PAGE / PUBLIC PROFILE PAGE */}
+            {activeView === "profile" && (
+              <motion.div 
+                key="profile" 
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 1 }} 
+                exit={{ opacity: 0 }} 
+                className="space-y-5"
+              >
+                {currentUser ? (
+                  /* Profile Details Page if authenticated */
+                  <div className="space-y-4">
+                    {/* Header Banner Background Decorator */}
+                    <div 
+                      className="relative h-32 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in"
+                      style={{ 
+                        backgroundImage: parsedMyBannerUrl 
+                          ? `url(${parsedMyBannerUrl})` 
+                          : 'linear-gradient(to bottom right, #1c133a, #100820, #140626)' 
+                      }}
+                    >
+                      {/* Ambient circles */}
+                      {!parsedMyBannerUrl && (
+                        <>
+                          <div className="absolute -top-10 -left-10 w-32 h-32 bg-purple-650/10 rounded-full blur-2xl" />
+                          <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-purple-500/15 rounded-full blur-2xl" />
+                        </>
+                      )}
+                      <div className="absolute top-4 right-4 flex gap-1.5 z-10">
+                        <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] uppercase tracking-wider font-mono font-black text-purple-355 border border-purple-500/20 shadow-lg flex items-center gap-1">
+                          <span className="inline-block w-1.5 h-1.5 bg-green-400 rounded-full animate-ping" />
+                          <span>My Account</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Floating Profile Stats & Metadata Info Grid */}
+                    <div className="relative -mt-10 px-4 sm:px-6 pb-6 pt-2 rounded-2xl bg-[#0c0a15]/95 backdrop-blur-xl shadow-xl space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+                        <div className="flex items-end space-x-4 animate-fade-in">
+                          <div className="relative shrink-0">
+                            <img 
+                              src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username)}`}
+                              alt={currentUser.username}
+                              className="w-20 h-20 rounded-2xl border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10"
+                            />
+                            {((currentUser.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe"].includes(currentUser.username.toLowerCase())) ) && (
+                              <div className="absolute -bottom-1.5 -right-1.5 bg-black rounded-full p-0.5 border border-purple-500/30 shadow-lg">
+                                <BadgeCheck className="w-5 h-5 text-purple-400 fill-purple-950" />
+                              </div>
                             )}
                           </div>
+                          
+                          <div className="space-y-1 text-left">
+                            <div className="flex items-center space-x-2">
+                              <h3 className="font-extrabold text-[#fafafa] text-lg font-sans tracking-tight leading-none">
+                                {currentUser.display_name || currentUser.username}
+                              </h3>
+                            </div>
+                            <p className="text-xs text-purple-400 font-mono">@{currentUser.username}</p>
+                          </div>
                         </div>
-                        
-                        <button
-                          onClick={() => setSelectedUsername(user.username)}
-                          className="bg-purple-600/10 hover:bg-purple-500/20 border border-purple-500/20 text-purple-400 font-bold text-xs px-3.5 py-1.5 rounded-xl transition-all cursor-pointer whitespace-nowrap shrink-0"
+
+                        <button 
+                          onClick={() => navigateTo("settings")}
+                          className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0 flex items-center space-x-1.5 self-start sm:self-auto"
                         >
-                          View Profile
+                          <Settings className="w-3.5 h-3.5" />
+                          <span>Edit Profile Settings</span>
                         </button>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div className="flex items-center justify-between border-b border-purple-950/25 pb-2">
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-400 font-display">
-                  Feed
-                </span>
-                <span className="text-[9px] text-slate-500 font-mono">
-                  Count: {filteredPosts.length}
-                </span>
-              </div>
 
-              {loadingPosts && posts.length === 0 ? (
-                <div className="py-24 flex flex-col items-center justify-center space-y-4">
-                  <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-slate-500 text-xs font-mono">GATHERING BROADCASTS...</p>
-                </div>
-              ) : postsError ? (
-                <div className="bg-red-950/20 border border-red-900/15 text-red-405 px-5 py-6 rounded-2xl text-center space-y-3">
-                  <p className="text-xs font-medium text-red-500">{postsError}</p>
-                  <button
-                    onClick={fetchPosts}
-                    className="bg-[#1c0a0d] border border-red-900/20 hover:bg-[#2c1014] text-red-300 px-4 py-2 rounded-xl text-xs font-semibold transition-all mx-auto block"
+                      {/* Bio details and Connections row */}
+                      <div className="pt-4 border-t border-zinc-800/65 space-y-3">
+                        <div className="p-3.5 rounded-xl bg-black/45 text-left">
+                          <p className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-sans">
+                            {parsedMyBioText || "No description / biography details added yet. Tap Settings to update profile details."}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 pt-1 justify-start">
+                          {currentUser.discord && (
+                            <div className="flex items-center space-x-2 text-[10px] text-purple-250 font-mono bg-[#5865F2]/10 border border-[#5865F2]/30 px-3 py-1.5 rounded-full shadow-inner">
+                              <span className="w-1.5 h-1.5 bg-[#5865F2] rounded-full animate-pulse" />
+                              <span className="font-bold uppercase opacity-80">Discord:</span>
+                              <span className="text-[#8ab4f8] font-bold">{currentUser.discord}</span>
+                            </div>
+                          )}
+
+                          <div className="flex items-center space-x-2 text-[10px] text-purple-300 font-mono bg-purple-950/20 border border-purple-500/10 px-3 py-1.5 rounded-full">
+                            <FileText className="w-3.5 h-3.5 text-purple-400" />
+                            <span className="font-bold uppercase opacity-85">Posts:</span>
+                            <span className="text-white font-bold">{profilePageData?.posts?.length || 0}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-extrabold uppercase font-mono tracking-widest text-zinc-550">My Broadcast History</h4>
+                      
+                      {profileLoading ? (
+                        <div className="py-12 text-center">
+                          <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                          <p className="text-[10px] tracking-wider uppercase font-mono text-zinc-500">Retrieving posts...</p>
+                        </div>
+                      ) : profilePageData?.posts && profilePageData.posts.length > 0 ? (
+                        <div className="space-y-4">
+                          {profilePageData.posts.map((post: Post) => (
+                            <PostCard 
+                              key={post.id}
+                              post={post}
+                              currentUser={currentUser}
+                              onPostUpdated={() => {
+                                fetchPosts();
+                                if (currentUser) fetchUserProfileData(currentUser.username);
+                              }}
+                              onPostDeleted={() => {
+                                fetchPosts();
+                                if (currentUser) fetchUserProfileData(currentUser.username);
+                              }}
+                              onOpenUserProfile={(name) => navigateTo("user-profile", { username: name })}
+                              onClickPost={(id) => navigateTo("post-detail", { postId: id })}
+                              adminPassword={adminPassword}
+                              onRepost={handleRepost}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className={`p-12 text-center bg-transparent border ${borderClass} rounded-2xl`}>
+                          <p className="text-xs text-zinc-500 font-medium">You haven't posted any wall broadcasts yet!</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* Auth Login Module block if signed out */
+                  <div className={`max-w-md mx-auto rounded-3xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#121118]/80 p-6 md:p-8 shadow-sm ${glassClass}`}>
+                    <div className="text-center mb-6">
+                      <h3 className="text-lg font-extrabold tracking-tight">Access Account</h3>
+                      <p className={`text-[11px] mt-1 ${textMuted}`}>Create or log into a profile to claim your verified wall posts.</p>
+                    </div>
+
+                    {/* Cupertino switch segments tab */}
+                    <div className="flex bg-black/40 p-1 rounded-xl mb-6 border border-zinc-900">
+                      <button 
+                        onClick={() => { setAuthTab("login"); setLoginError(null); }}
+                        className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg cursor-pointer transition-all ${
+                          authTab === "login" ? "bg-purple-600 text-white shadow-xs" : "text-zinc-500 hover:text-zinc-300"
+                        }`}
+                      >
+                        Sign In
+                      </button>
+                      <button 
+                        onClick={() => { setAuthTab("register"); setRegError(null); }}
+                        className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg cursor-pointer transition-all ${
+                          authTab === "register" ? "bg-purple-600 text-white shadow-xs" : "text-zinc-500 hover:text-zinc-300"
+                        }`}
+                      >
+                        Register
+                      </button>
+                    </div>
+
+                    {authTab === "login" ? (
+                      <form onSubmit={handleLoginSubmit} className="space-y-4 text-left">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Email Address</label>
+                          <input 
+                            type="email"
+                            required
+                            placeholder="e.g. self@domain.com"
+                            value={loginEmail}
+                            onChange={(e) => setLoginEmail(e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Password</label>
+                          <input 
+                            type="password"
+                            required
+                            placeholder="••••••••"
+                            value={loginPassword}
+                            onChange={(e) => setLoginPassword(e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                          />
+                        </div>
+
+                        {loginError && (
+                          <div className="p-3 bg-red-500/5 border border-red-500/10 text-red-500 rounded-xl text-xs font-medium">
+                            {loginError}
+                          </div>
+                        )}
+
+                        <button 
+                          type="submit"
+                          disabled={loginLoading}
+                          className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/30 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                        >
+                          {loginLoading ? "Authorizing..." : "Log In"}
+                        </button>
+                      </form>
+                    ) : (
+                      <form onSubmit={handleRegisterSubmit} className="space-y-3.5 text-left">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Full Display Name</label>
+                          <input 
+                            type="text"
+                            required
+                            maxLength={40}
+                            placeholder="e.g. John Doe, Mavebo Dev"
+                            value={regName}
+                            onChange={(e) => setRegName(e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">User Handle (Username)</label>
+                          <input 
+                            type="text"
+                            required
+                            maxLength={25}
+                            placeholder="e.g. dil_doe, mavebo, code_smith"
+                            value={regUsername}
+                            onChange={(e) => setRegUsername(e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                          />
+                          <p className="text-[9px] text-zinc-400">Alphanumeric, underscores and dots only.</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Email Address</label>
+                          <input 
+                            type="email"
+                            required
+                            placeholder="e.g. custom@origin.com"
+                            value={regEmail}
+                            onChange={(e) => setRegEmail(e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Secret Password</label>
+                          <input 
+                            type="password"
+                            required
+                            placeholder="Min. 6 long characters"
+                            value={regPassword}
+                            onChange={(e) => setRegPassword(e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                          />
+                        </div>
+
+                        {regError && (
+                          <div className="p-3 bg-red-500/5 border border-red-500/10 text-red-500 rounded-xl text-xs font-semibold">
+                            {regError}
+                          </div>
+                        )}
+
+                        {regSuccess && (
+                          <div className="p-3 bg-green-500/5 border border-green-500/10 text-green-500 rounded-xl text-xs font-semibold">
+                            {regSuccess}
+                          </div>
+                        )}
+
+                        <button 
+                          type="submit"
+                          disabled={regLoading}
+                          className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-650/30 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                        >
+                          {regLoading ? "Registering account..." : "Complete Signup"}
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* D. PUBLIC DETAILED USER PROFILE VIEW */}
+            {activeView === "user-profile" && (
+              <motion.div 
+                key="user-profile" 
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 1 }} 
+                exit={{ opacity: 0 }} 
+                className="space-y-4"
+              >
+                <div className={`flex items-center justify-between border-b ${borderClass} pb-2`}>
+                  <button 
+                    onClick={() => navigateTo("feed")}
+                    className="flex items-center space-x-1 text-xs font-bold text-purple-400 hover:text-purple-305 cursor-pointer"
                   >
-                    Retry
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Back to Wall Feed</span>
                   </button>
+                  <span className="text-[10px] uppercase font-mono tracking-widest text-zinc-500">Public Page</span>
                 </div>
-              ) : filteredPosts.length === 0 ? (
-                <div className="bg-slate-950/10 border border-slate-900 rounded-2xl py-16 px-4 text-center space-y-2">
-                  <h3 className="text-slate-400 font-semibold text-xs uppercase font-mono tracking-wider">Feed is empty</h3>
-                  <p className="text-slate-500 text-[10px] max-w-sm mx-auto leading-relaxed font-mono">
-                    {searchQuery
-                      ? "No broadcasts matched your query filters."
-                      : "No broadcasts published yet. Be the first to post!"}
-                  </p>
+
+                {profileLoading ? (
+                  <div className="py-20 text-center space-y-3">
+                    <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                    <p className="text-[10px] font-mono tracking-widest text-zinc-500 uppercase">Synchronizing profile metadata...</p>
+                  </div>
+                ) : profileError ? (
+                  <div className={`p-8 border border-red-550/10 bg-red-500/5 text-red-500 rounded-2xl text-center space-y-2`}>
+                    <p className="text-xs font-semibold">{profileError}</p>
+                    <button onClick={() => navigateTo("feed")} className="px-4 py-1.5 bg-[#9333ea] hover:bg-[#a855f7] text-white font-bold text-xs rounded-lg cursor-pointer">
+                      Return to Feed
+                    </button>
+                  </div>
+                ) : profilePageData ? (
+                  <div className="space-y-5 animate-fade-in">
+                    
+                    {/* Header Banner Background Decorator */}
+                    <div 
+                      className="relative h-32 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in"
+                      style={{ 
+                        backgroundImage: profilePageData.banner_url 
+                          ? `url(${profilePageData.banner_url})` 
+                          : 'linear-gradient(to bottom right, #1b143a, #100820, #140626)' 
+                      }}
+                    >
+                      {/* Ambient circles */}
+                      {!profilePageData.banner_url && (
+                        <>
+                          <div className="absolute -top-10 -left-10 w-32 h-32 bg-purple-650/10 rounded-full blur-2xl" />
+                          <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-purple-500/15 rounded-full blur-2xl" />
+                        </>
+                      )}
+                      <div className="absolute top-4 right-4 flex gap-1.5 z-10">
+                        <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] uppercase tracking-wider font-mono font-black text-purple-355 border border-purple-500/20 shadow-lg flex items-center gap-1">
+                          <span className="inline-block w-1.5 h-1.5 bg-green-400 rounded-full animate-ping" />
+                          <span>Active Member</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Floating Profile Stats & Metadata Info Grid */}
+                    <div className="relative -mt-10 px-4 sm:px-6 pb-6 pt-2 rounded-2xl bg-[#0c0a15]/95 backdrop-blur-xl shadow-xl space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+                        <div className="flex items-end space-x-4">
+                          <div className="relative shrink-0">
+                            <img 
+                              src={profilePageData.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(profilePageData.username)}`}
+                              alt={profilePageData.username}
+                              className="w-20 h-20 rounded-2xl border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10"
+                            />
+                            {((profilePageData.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe"].includes(profilePageData.username.toLowerCase())) ) && (
+                              <div className="absolute -bottom-1.5 -right-1.5 bg-black rounded-full p-0.5 border border-purple-500/30 shadow-lg">
+                                <BadgeCheck className="w-5 h-5 text-purple-400 fill-purple-950" />
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-1 text-left">
+                            <div className="flex items-center space-x-2">
+                              <h3 className="font-extrabold text-[#fafafa] text-lg font-sans tracking-tight leading-none">
+                                {profilePageData.display_name || profilePageData.username}
+                              </h3>
+                            </div>
+                            <p className="text-xs text-purple-400 font-mono">@{profilePageData.username}</p>
+                          </div>
+                        </div>
+
+                        {currentUser && currentUser.username.toLowerCase() === profilePageData.username.toLowerCase() ? (
+                          <button 
+                            onClick={() => navigateTo("settings")}
+                            className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0 self-start sm:self-auto animate-pulse"
+                          >
+                            Edit Profile Settings
+                          </button>
+                        ) : currentUser && (
+                          <span className="text-[10px] uppercase font-mono tracking-wider text-purple-300/40 pointer-events-none self-start sm:self-auto flex items-center space-x-1.5 bg-purple-950/20 px-3 py-1.5 rounded-lg border border-purple-500/10">
+                            <Users className="w-3.5 h-3.5" />
+                            <span>Signed In</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Bio details and Connections row */}
+                      <div className="pt-4 border-t border-zinc-800/65 space-y-3">
+                        <div className="p-3.5 rounded-xl bg-black/45 border border-zinc-900/40 text-left">
+                          <p className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-sans">
+                            {profilePageData.bio || "No description / biography details added yet."}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 pt-1 justify-start">
+                          {profilePageData.discord && (
+                            <div className="flex items-center space-x-2 text-[10px] text-purple-250 font-mono bg-[#5865F2]/10 border border-[#5865F2]/30 px-3 py-1.5 rounded-full shadow-inner">
+                              <span className="w-1.5 h-1.5 bg-[#5865F2] rounded-full animate-pulse" />
+                              <span className="font-bold uppercase opacity-80">Discord:</span>
+                              <span className="text-[#8ab4f8] font-bold">{profilePageData.discord}</span>
+                            </div>
+                          )}
+
+                          <div className="flex items-center space-x-2 text-[10px] text-purple-300 font-mono bg-purple-950/20 border border-purple-500/10 px-3 py-1.5 rounded-full">
+                            <FileText className="w-3.5 h-3.5 text-purple-400" />
+                            <span className="font-bold uppercase opacity-85">Posts:</span>
+                            <span className="text-white font-bold">{profilePageData.posts?.length || 0}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stream of this specified user's wall publications */}
+                    <div className="space-y-3.5">
+                      <h4 className="text-xs font-extrabold uppercase font-mono tracking-widest text-purple-400 text-left">
+                        Publications by @{profilePageData.username}
+                      </h4>
+                      
+                      {profilePageData.posts && profilePageData.posts.length > 0 ? (
+                        <div className="space-y-4">
+                          {profilePageData.posts.map((post: Post) => (
+                            <PostCard 
+                              key={post.id}
+                              post={post}
+                              currentUser={currentUser}
+                              onPostUpdated={() => {
+                                fetchPosts();
+                                fetchUserProfileData(profilePageData.username);
+                              }}
+                              onPostDeleted={() => {
+                                fetchPosts();
+                                fetchUserProfileData(profilePageData.username);
+                              }}
+                              onOpenUserProfile={(name) => navigateTo("user-profile", { username: name })}
+                              onClickPost={(id) => navigateTo("post-detail", { postId: id })}
+                              adminPassword={adminPassword}
+                              onRepost={handleRepost}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className={`p-12 text-center border ${borderClass} rounded-2xl`}>
+                          <p className="text-xs text-zinc-400">This account hasn't broadcasted any posts yet.</p>
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                ) : null}
+              </motion.div>
+            )}
+
+            {/* E. OWN EDITABLE SETTINGS PAGE */}
+            {activeView === "settings" && (
+              <motion.div 
+                key="settings" 
+                initial={{ opacity: 0, scale: 0.98 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                exit={{ opacity: 0 }} 
+                className="space-y-4"
+              >
+                <div className={`flex items-center justify-between border-b ${borderClass} pb-2`}>
+                  <button 
+                    onClick={() => navigateTo("profile")}
+                    className="flex items-center space-x-1 text-xs font-bold text-purple-400 hover:text-purple-300 cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Back to Profile</span>
+                  </button>
+                  <span className="text-[10px] uppercase font-mono tracking-widest text-zinc-500">Profile Configuration</span>
                 </div>
-              ) : (
-                <div className="space-y-3 sm:space-y-4">
-                  {filteredPosts.map((post) => (
-                    <PostCard
-                      key={post.id}
-                      post={post}
-                      currentUser={currentUser}
-                      onPostUpdated={fetchPosts}
-                      onOpenUserProfile={(name) => setSelectedUsername(name)}
-                      onClickPost={navigateToPost}
-                      adminPassword={adminPassword}
-                      onRepost={handleRepost}
-                    />
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+
+                {currentUser ? (
+                  <div className={`rounded-3xl ${isDark ? 'bg-zinc-950/40' : 'bg-white'} p-6 md:p-8 space-y-6 ${glassClass}`}>
+                    <div>
+                      <h3 className="text-base font-black tracking-tight">Profile Customization</h3>
+                      <p className={`text-[11px] ${textMuted} mt-1`}>Configure Display Handle, Username tag, banner style, biography logs, and connections.</p>
+                    </div>
+
+                    <form onSubmit={handleEditProfileSave} className="space-y-5 text-left">
+                      
+                      {/* Avatar config */}
+                      <div className="flex items-center space-x-4 p-4 rounded-2xl bg-[#c0c0c0]/5">
+                        <img 
+                          src={editAvatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(editUsername)}`}
+                          alt="Edit avatar preview"
+                          className="w-14 h-14 rounded-full object-cover border border-purple-500/30 shrink-0 bg-purple-500/5"
+                        />
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <p className="text-[10px] font-extrabold uppercase font-mono text-zinc-500">Avatar Image</p>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input 
+                              type="text"
+                              placeholder="Avatar URL directly..."
+                              value={editAvatarUrl}
+                              onChange={(e) => setEditAvatarUrl(e.target.value)}
+                              className="flex-1 rounded-lg px-2.5 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-500/40 bg-zinc-900 border-zinc-800 text-zinc-100"
+                            />
+                            <label className="shrink-0 px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] rounded-lg cursor-pointer flex items-center justify-center space-x-1">
+                              <Upload className="w-3 h-3" />
+                              <span>Upload</span>
+                              <input 
+                                type="file"
+                                className="hidden"
+                                accept="image/*"
+                                onChange={handleAvatarFileUpload}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Cover Banner config */}
+                      <div className="flex items-center space-x-4 p-4 rounded-2xl bg-[#c0c0c0]/5">
+                        <div 
+                          className="w-14 h-14 rounded-lg bg-cover bg-center border border-purple-500/10 shrink-0 bg-purple-500/5 overflow-hidden flex items-center justify-center text-[9px] text-zinc-500 font-bold uppercase"
+                          style={{ backgroundImage: editBannerUrl ? `url(${editBannerUrl})` : "none" }}
+                        >
+                          {!editBannerUrl && "No Banner"}
+                        </div>
+                        <div className="space-y-1.5 flex-1 min-w-0">
+                          <p className="text-[10px] font-extrabold uppercase font-mono text-zinc-500">Profile Cover Banner</p>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input 
+                              type="text"
+                              placeholder="Banner URL directly..."
+                              value={editBannerUrl}
+                              onChange={(e) => setEditBannerUrl(e.target.value)}
+                              className="flex-1 rounded-lg px-2.5 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-500/40 bg-zinc-900 border-zinc-800 text-zinc-100"
+                            />
+                            <label className="shrink-0 px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] rounded-lg cursor-pointer flex items-center justify-center space-x-1">
+                              <Upload className="w-3 h-3" />
+                              <span>Upload</span>
+                              <input 
+                                type="file"
+                                className="hidden"
+                                accept="image/*"
+                                onChange={handleBannerFileUpload}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Display Name</label>
+                          <input 
+                            type="text"
+                            required
+                            maxLength={40}
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">User Handle (Username)</label>
+                          <input 
+                            type="text"
+                            required
+                            maxLength={25}
+                            value={editUsername}
+                            onChange={(e) => setEditUsername(e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Discord Connection tag</label>
+                        <input 
+                          type="text"
+                          placeholder="e.g. jocko_smith#4321"
+                          maxLength={35}
+                          value={editDiscord}
+                          onChange={(e) => setEditDiscord(e.target.value)}
+                          className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Biography Logs (About Me)</label>
+                        <textarea
+                          rows={4}
+                          maxLength={250}
+                          placeholder="Tell us about yourself..."
+                          value={editBio}
+                          onChange={(e) => setEditBio(e.target.value)}
+                          className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none bg-zinc-900 border-zinc-805 text-zinc-100"
+                        />
+                        <div className="flex justify-between text-[9px] text-zinc-450">
+                          <span>Brief summary describing biography.</span>
+                          <span>{editBio.length} / 250</span>
+                        </div>
+                      </div>
+
+                      {editError && (
+                        <div className="p-3 bg-red-500/5 border border-red-500/10 text-red-500 rounded-xl text-xs font-medium">
+                          {editError}
+                        </div>
+                      )}
+
+                      {editSuccess && (
+                        <div className="p-3 bg-green-500/5 border border-green-500/10 text-green-500 rounded-xl text-xs font-semibold flex items-center space-x-1.5">
+                          <Check className="w-4 h-4 text-green-500" />
+                          <span>Profile details updated successfully! Saving settings...</span>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col sm:flex-row gap-3 pt-3">
+                        <button 
+                          type="submit"
+                          disabled={editLoading}
+                          className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-650/35 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                        >
+                          {editLoading ? "Saving Configurations..." : "Save Config Details"}
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => navigateTo("profile")}
+                          className={`px-6 py-2.5 rounded-xl text-xs font-bold border ${borderClass} ${hoverClass} transition-all cursor-pointer`}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+
+                    </form>
+
+                    <div className="pt-6 border-t border-zinc-200/60 dark:border-zinc-800/60 flex flex-col items-center">
+                      <p className="text-[10px] text-red-400 font-bold uppercase tracking-wider mb-2">Danger Core Area</p>
+                      <button 
+                        onClick={handleLogout}
+                        className="px-6 py-2 rounded-xl bg-red-550 border border-red-500/30 hover:bg-red-600 text-white font-bold text-xs cursor-pointer tracking-wider shrink-0 transition-colors"
+                      >
+                        Disconnect & Log Out
+                      </button>
+                    </div>
+
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <p className="text-sm font-semibold text-zinc-500">You must be logged in to access configurations.</p>
+                    <button onClick={() => navigateTo("profile")} className="mt-4 px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold cursor-pointer">
+                      Log In / Signup
+                    </button>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+          </AnimatePresence>
         </div>
 
       </main>
 
-      {/* 5. MINIMALIST FOOTER */}
-      <footer className="border-t border-purple-950/20 py-6 px-4 mt-12 shrink-0 bg-[#07060a]">
-        <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between text-[10px] text-slate-505 font-mono gap-3">
-          <div>
-            <p className="font-bold text-purple-400">StartOrigin © 2026</p>
-          </div>
-        </div>
-      </footer>
+      {/* 5. MOBILE BOTTOM TAB NAVIGATION BAR DOCK */}
+      <div className={`md:hidden fixed bottom-0 left-0 right-0 z-40 border-t ${borderClass} px-6 py-3.5 flex justify-around items-center ${isDark ? 'bg-[#0f0e15]/95' : 'bg-white/95'} backdrop-blur-lg`}>
+        <button 
+          onClick={() => navigateTo("feed")}
+          className={`flex flex-col items-center space-y-1 cursor-pointer outline-none ${activeView === "feed" ? "text-purple-400" : "text-zinc-400"}`}
+        >
+          <FileText className="w-5 h-5" />
+          <span className="text-[9px] font-bold tracking-wider uppercase">Feed</span>
+        </button>
 
-      {/* About Modal ("?") */}
+        <button 
+          onClick={() => setIsPostModalOpen(true)}
+          className="flex flex-col items-center justify-center p-2.5 rounded-full bg-[#9333ea] text-white shadow-md shadow-purple-500/20 active:scale-90 transition-transform cursor-pointer"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+
+        <button 
+          onClick={() => navigateTo("profile")}
+          className={`flex flex-col items-center space-y-1 cursor-pointer outline-none ${activeView === "profile" || activeView === "settings" ? "text-purple-400" : "text-zinc-400"}`}
+        >
+          {currentUser ? (
+            <img 
+              src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username)}`}
+              alt="avatar representation"
+              referrerPolicy="no-referrer"
+              className={`w-5 h-5 rounded-full object-cover shrink-0 border ${
+                activeView === "profile" ? "border-purple-500" : "border-zinc-300 dark:border-zinc-700"
+              }`}
+            />
+          ) : (
+            <User className="w-5 h-5" />
+          )}
+          <span className="text-[9px] font-bold tracking-wider uppercase">Profile</span>
+        </button>
+      </div>
+
+      {/* About Modal Dialog */}
       <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
 
-      {/* Account / Configuration / Login / Register Modal */}
-      <AccountModal
-        isOpen={isAccountOpen}
-        onClose={() => setIsAccountOpen(false)}
-        currentUser={currentUser}
-        onAuthSuccess={handleAuthSuccess}
-        onLogout={handleLogout}
-        onPostDeleted={fetchPosts}
-        onPostCreated={fetchPosts}
-      />
-
-      {/* Create / Compose Post Modal overlay */}
-      <CreatePostModal
+      {/* Compose Publication Modal pop-over */}
+      <CreatePostModal 
         isOpen={isPostModalOpen}
         onClose={() => {
           setIsPostModalOpen(false);
@@ -872,18 +2000,6 @@ export default function App() {
         onPostCreated={fetchPosts}
         repostOfPost={repostOfPost}
         onClearRepost={() => setRepostOfPost(null)}
-      />
-
-      {/* User public detailed profile viewing modal */}
-      <UserProfileModal
-        username={selectedUsername}
-        isOpen={!!selectedUsername}
-        onClose={() => setSelectedUsername(null)}
-        onOpenUserProfile={setSelectedUsername}
-        onClickPost={navigateToPost}
-        currentUser={currentUser}
-        adminPassword={adminPassword}
-        onPostDeleted={fetchPosts}
       />
 
     </div>

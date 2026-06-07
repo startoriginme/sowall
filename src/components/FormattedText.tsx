@@ -21,8 +21,8 @@ export default function FormattedText({ text, onOpenUserProfile }: FormattedText
     <>
       {parts.map((part, index) => {
         if (part.startsWith("@") && part.length > 1) {
-          // Clean username from auxiliary punctuation if attached
-          const cleanUsername = part.substring(1).replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "");
+          // Clean username from auxiliary punctuation if attached (keeping underscores and hyphens)
+          const cleanUsername = part.substring(1).replace(/[.,\/#!$%\^&\*;:{}=`~()?]/g, "");
           return (
             <span
               key={index}

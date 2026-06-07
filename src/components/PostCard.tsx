@@ -351,7 +351,7 @@ export default function PostCard({
   return (
     <div
       onClick={handleCardClick}
-      className="bg-[#0b0b0f] border border-slate-900 border-b-slate-800/10 hover:border-purple-950/30 p-3.5 sm:p-4 rounded-xl transition-all text-slate-200 shadow-sm relative flex flex-col select-text cursor-pointer hover:bg-[#0d0d14]"
+      className="bg-[#0b0b0f] border border-transparent hover:border-purple-950/30 p-3.5 sm:p-4 rounded-xl transition-all text-slate-200 shadow-sm relative flex flex-col select-text cursor-pointer hover:bg-[#0d0d14]"
     >
       {/* Absolute admin indicator badge */}
       {isAdminActive && (

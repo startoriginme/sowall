@@ -19,7 +19,7 @@ interface PostFormProps {
 
 export default function PostForm({ currentUser, onPostCreated, onClose, repostOfPost, onClearRepost }: PostFormProps) {
   const [content, setContent] = useState("");
-  const [postMode, setPostMode] = useState<"anonymous" | "custom" | "account">("anonymous");
+  const [postMode, setPostMode] = useState<"anonymous" | "custom" | "account">(currentUser ? "account" : "anonymous");
   const [customName, setCustomName] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);

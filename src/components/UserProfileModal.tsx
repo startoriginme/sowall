@@ -56,11 +56,11 @@ export default function UserProfileModal({
       setLoading(true);
       setErrorProfile(null);
 
-      // 1. Get profile by username
+      // 1. Get profile by username (case-insensitive)
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("*")
-        .eq("username", username)
+        .ilike("username", username)
         .maybeSingle();
 
       if (profileError) throw profileError;
