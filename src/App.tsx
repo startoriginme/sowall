@@ -136,7 +136,10 @@ export default function App() {
     window.history.pushState(null, "", path);
     setActiveView(view);
     
-    if (params?.username) {
+    if (view === "profile" && currentUser) {
+      setActiveUsername(currentUser.username);
+      fetchUserProfileData(currentUser.username);
+    } else if (params?.username) {
       setActiveUsername(params.username);
       fetchUserProfileData(params.username);
     } else {
@@ -252,7 +255,7 @@ export default function App() {
         .from("posts")
         .select(`
           *,
-          profiles!posts_user_id_fkey (*),
+          profiles:profiles!posts_user_id_fkey (*),
           comments:comments (
             *,
             profiles:profiles!comments_user_id_fkey (*)
@@ -309,63 +312,28 @@ export default function App() {
       
       const { data: postsData, error: postsError } = await supabase
         .from("posts")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select(`
+          *,
+          profiles:profiles!posts_user_id_fkey (*),
+          comments:comments (
+            *,
+            profiles:profiles!comments_user_id_fkey (*)
+          ),
+          post_likes (*)
+        `)
+        .order("created_at", { ascending: false })
+        .limit(100);
 
       if (postsError) throw postsError;
 
-      const userIds = [...new Set(postsData?.map(p => p.user_id).filter(Boolean))];
-      
-      const { data: profilesData, error: profilesError } = await supabase
-        .from("profiles")
-        .select("*")
-        .in("id", userIds);
-
-      if (profilesError) console.error("Error fetching profiles:", profilesError);
-
-      const postIds = postsData?.map(p => p.id) || [];
-      const { data: commentsData, error: commentsError } = await supabase
-        .from("comments")
-        .select("*")
-        .in("post_id", postIds)
-        .order("created_at", { ascending: true });
-
-      if (commentsError) console.error("Error fetching comments:", commentsError);
-
-      const commentUserIds = [...new Set(commentsData?.map(c => c.user_id).filter(Boolean))];
-      const { data: commentProfilesData, error: commentProfilesError } = await supabase
-        .from("profiles")
-        .select("*")
-        .in("id", commentUserIds);
-
-      if (commentProfilesError) console.error("Error fetching comment profiles:", commentProfilesError);
-
-      const { data: likesData, error: likesError } = await supabase
-        .from("post_likes")
-        .select("*")
-        .in("post_id", postIds);
-
-      if (likesError) console.error("Error fetching likes:", likesError);
-
-      const enrichedPosts = postsData?.map(post => {
-        const authorProfile = profilesData?.find(p => p.id === post.user_id);
-        
-        const postComments = commentsData
-          ?.filter(c => c.post_id === post.id)
-          .map(comment => ({
-            ...comment,
-            profiles: commentProfilesData?.find(p => p.id === comment.user_id)
-          })) || [];
-        
-        const postLikes = likesData?.filter(l => l.post_id === post.id) || [];
-        
+      const enrichedPosts = (postsData || []).map((post: any) => {
+        const comments = post.comments || [];
+        comments.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         return {
           ...post,
-          profiles: authorProfile,
-          comments: postComments,
-          post_likes: postLikes
+          comments
         };
-      }) || [];
+      });
 
       setPosts(enrichedPosts);
     } catch (err: any) {
@@ -538,7 +506,14 @@ export default function App() {
     return () => {
       window.removeEventListener("popstate", onPopstate);
     };
-  }, [posts]);
+  }, [currentUser]);
+
+  // Fetch personal profile posts whenever user switches to profile view or current user updates
+  useEffect(() => {
+    if (activeView === "profile" && currentUser?.username) {
+      fetchUserProfileData(currentUser.username);
+    }
+  }, [activeView, currentUser?.username]);
 
   // Dynamic search debounce for users
   useEffect(() => {
@@ -1103,7 +1078,7 @@ export default function App() {
                       placeholder="Search posts or authors..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full rounded-xl pl-9 pr-8 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-800 text-zinc-100 placeholder-zinc-500"
+                      className="w-full rounded-xl pl-9 pr-8 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-800 text-zinc-100 placeholder-zinc-500"
                     />
                     <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-purple-400" />
                     {searchQuery && (
@@ -1468,7 +1443,7 @@ export default function App() {
                             placeholder="e.g. self@domain.com"
                             value={loginEmail}
                             onChange={(e) => setLoginEmail(e.target.value)}
-                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                            className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
                           />
                         </div>
 
@@ -1480,7 +1455,7 @@ export default function App() {
                             placeholder="••••••••"
                             value={loginPassword}
                             onChange={(e) => setLoginPassword(e.target.value)}
-                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                            className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
                           />
                         </div>
 
@@ -1509,7 +1484,7 @@ export default function App() {
                             placeholder="e.g. John Doe, Mavebo Dev"
                             value={regName}
                             onChange={(e) => setRegName(e.target.value)}
-                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                            className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
                           />
                         </div>
 
@@ -1522,7 +1497,7 @@ export default function App() {
                             placeholder="e.g. dil_doe, mavebo, code_smith"
                             value={regUsername}
                             onChange={(e) => setRegUsername(e.target.value)}
-                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                            className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
                           />
                           <p className="text-[9px] text-zinc-400">Alphanumeric, underscores and dots only.</p>
                         </div>
@@ -1535,7 +1510,7 @@ export default function App() {
                             placeholder="e.g. custom@origin.com"
                             value={regEmail}
                             onChange={(e) => setRegEmail(e.target.value)}
-                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                            className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
                           />
                         </div>
 
@@ -1547,7 +1522,7 @@ export default function App() {
                             placeholder="Min. 6 long characters"
                             value={regPassword}
                             onChange={(e) => setRegPassword(e.target.value)}
-                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                            className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
                           />
                         </div>
 
@@ -1788,7 +1763,7 @@ export default function App() {
                               placeholder="Avatar URL directly..."
                               value={editAvatarUrl}
                               onChange={(e) => setEditAvatarUrl(e.target.value)}
-                              className="flex-1 rounded-lg px-2.5 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-500/40 bg-zinc-900 border-zinc-800 text-zinc-100"
+                              className="flex-1 rounded-lg px-2.5 py-1 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/40 bg-zinc-900 border-zinc-800 text-zinc-100"
                             />
                             <label className="shrink-0 px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] rounded-lg cursor-pointer flex items-center justify-center space-x-1">
                               <Upload className="w-3 h-3" />
@@ -1820,7 +1795,7 @@ export default function App() {
                               placeholder="Banner URL directly..."
                               value={editBannerUrl}
                               onChange={(e) => setEditBannerUrl(e.target.value)}
-                              className="flex-1 rounded-lg px-2.5 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-purple-500/40 bg-zinc-900 border-zinc-800 text-zinc-100"
+                              className="flex-1 rounded-lg px-2.5 py-1 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/40 bg-zinc-900 border-zinc-800 text-zinc-100"
                             />
                             <label className="shrink-0 px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] rounded-lg cursor-pointer flex items-center justify-center space-x-1">
                               <Upload className="w-3 h-3" />
@@ -1845,7 +1820,7 @@ export default function App() {
                             maxLength={40}
                             value={editName}
                             onChange={(e) => setEditName(e.target.value)}
-                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                            className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
                           />
                         </div>
 
@@ -1857,7 +1832,7 @@ export default function App() {
                             maxLength={25}
                             value={editUsername}
                             onChange={(e) => setEditUsername(e.target.value)}
-                            className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                            className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
                           />
                         </div>
                       </div>
@@ -1870,7 +1845,7 @@ export default function App() {
                           maxLength={35}
                           value={editDiscord}
                           onChange={(e) => setEditDiscord(e.target.value)}
-                          className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
+                          className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-900 border-zinc-805 text-zinc-100"
                         />
                       </div>
 
@@ -1882,7 +1857,7 @@ export default function App() {
                           placeholder="Tell us about yourself..."
                           value={editBio}
                           onChange={(e) => setEditBio(e.target.value)}
-                          className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none bg-zinc-900 border-zinc-805 text-zinc-100"
+                          className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none bg-zinc-900 border-zinc-805 text-zinc-100"
                         />
                         <div className="flex justify-between text-[9px] text-zinc-450">
                           <span>Brief summary describing biography.</span>

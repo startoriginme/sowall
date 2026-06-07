@@ -189,7 +189,7 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
               }
             }}
             placeholder={repostOfPost ? "Add a comment to this repost..." : "Share your thoughts anonymously..."}
-            className="w-full bg-[#121118] border border-slate-800/80 focus:border-purple-500/50 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-600 text-sm focus:outline-none transition-all resize-none leading-relaxed"
+            className="w-full bg-[#121118] border border-slate-800/80 focus:border-purple-500/50 rounded-xl px-4 py-3 text-slate-100 placeholder-slate-600 text-base focus:outline-none transition-all resize-none leading-relaxed"
             autoFocus
           />
           <div className="flex justify-between items-center text-[10px] text-slate-500 font-mono">
@@ -307,7 +307,7 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
                 placeholder="What would you like to ask?"
                 value={pollQuestion}
                 onChange={(e) => setPollQuestion(e.target.value)}
-                className="w-full bg-[#161620] border border-slate-800 focus:border-purple-500/30 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none"
+                className="w-full bg-[#161620] border border-slate-800 focus:border-purple-500/30 rounded-lg px-3 py-1.5 text-base text-slate-200 focus:outline-none"
               />
             </div>
 
@@ -322,7 +322,7 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
                     placeholder={`Option ${i + 1}`}
                     value={opt}
                     onChange={(e) => handleUpdateOptionText(i, e.target.value)}
-                    className="flex-1 bg-[#161620] border border-slate-800 focus:border-purple-500/30 rounded-lg px-3 py-1.5 text-xs text-slate-250 focus:outline-none"
+                    className="flex-1 bg-[#161620] border border-slate-800 focus:border-purple-500/30 rounded-lg px-3 py-1.5 text-base text-slate-250 focus:outline-none"
                   />
                   {pollOptions.length > 2 && (
                     <button
@@ -463,7 +463,7 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
                 placeholder="Enter custom handle (e.g., secret_teller)"
                 value={customName}
                 onChange={(e) => setCustomName(e.target.value)}
-                className="w-full bg-[#161620] border border-slate-800 focus:border-purple-500/50 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-650 text-xs focus:outline-none"
+                className="w-full bg-[#161620] border border-slate-800 focus:border-purple-500/50 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-650 text-base focus:outline-none"
               />
             </motion.div>
           )}

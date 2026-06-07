@@ -438,7 +438,7 @@ export default function PostCard({
                   value={editedContent}
                   onChange={(e) => setEditedContent(e.target.value)}
                   rows={3}
-                  className="w-full bg-[#121118] border border-slate-800 rounded-xl px-3 py-2 text-slate-100 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/30 resize-none"
+                  className="w-full bg-[#121118] border border-slate-800 rounded-xl px-3 py-2 text-slate-100 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/30 resize-none"
                 />
                 {editError && <div className="text-xs text-red-400">{editError}</div>}
                 <div className="flex items-center space-x-2 justify-end">
@@ -745,7 +745,7 @@ export default function PostCard({
                 if (commentError) setCommentError(null);
               }}
               placeholder="Reply to this thread..."
-              className="w-full bg-[#161620] border border-slate-850 focus:border-purple-500/20 rounded-lg px-3 py-1.5 text-slate-200 placeholder-slate-600 text-xs focus:outline-none resize-none"
+              className="w-full bg-[#161620] border border-slate-850 focus:border-purple-500/20 rounded-lg px-3 py-1.5 text-slate-200 placeholder-slate-600 text-base focus:outline-none resize-none"
             />
 
             {commentError && <div className="text-[10px] text-red-450 text-left">{commentError}</div>}
@@ -771,7 +771,7 @@ export default function PostCard({
                     setCustomCommentName(e.target.value);
                     setIsAnonymousComment(false);
                   }}
-                  className="bg-[#161620] border border-slate-850 focus:border-purple-500/20 rounded-md px-2 py-1 text-[10px] text-slate-200 placeholder-slate-650 focus:outline-none w-32"
+                  className="bg-[#161620] border border-slate-850 focus:border-purple-500/20 rounded-md px-2 py-1 text-base text-slate-200 placeholder-slate-650 focus:outline-none w-36"
                 />
               )}
 
