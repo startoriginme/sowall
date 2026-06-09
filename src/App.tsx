@@ -16,6 +16,7 @@ import CreatePostModal from "./components/CreatePostModal";
 import PostCard from "./components/PostCard";
 import SlidingCaptcha from "./components/SlidingCaptcha";
 import SettingsModal from "./components/SettingsModal";
+import GhostLoader from "./components/GhostLoader";
 import { supabase } from "./lib/supabase";
 
 export default function App() {
@@ -377,33 +378,6 @@ export default function App() {
         return;
       }
 
-      // Step 2: load historic posts for this specific identifier
-      const { data: postsData, error: postsError } = await supabase
-        .from("posts")
-        .select(`
-          *,
-          profiles:profiles!posts_user_id_fkey (*),
-          comments:comments (
-            *,
-            profiles:profiles!comments_user_id_fkey (*)
-          ),
-          post_likes (*)
-        `)
-        .eq("user_id", profile.id)
-        .order("created_at", { ascending: false });
-
-      if (postsError) throw postsError;
-
-      // Clean metadata inside posts and sort comments manually
-      const sortedPosts = (postsData || []).map((post: any) => {
-        const comments = post.comments || [];
-        comments.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-        return {
-          ...post,
-          comments
-        };
-      });
-
       // Bio text extraction
       let cleanBio = profile.bio || "";
       let bannerUrl = "";
@@ -420,8 +394,7 @@ export default function App() {
       const freshProfileData = {
         ...profile,
         bio: cleanBio,
-        banner_url: bannerUrl,
-        posts: sortedPosts
+        banner_url: bannerUrl
       };
 
       if (currentUser && profile.id === currentUser.id) {
@@ -505,126 +478,119 @@ export default function App() {
     }
   };
 
-  // Restore user session from Supabase
-  const restoreSession = async () => {
-    try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError) {
-        console.warn("Session restore error encountered:", sessionError);
-        localStorage.removeItem("token");
-        localStorage.removeItem("userId");
-        for (const key of Object.keys(localStorage)) {
-          if (key.startsWith("sb-") || key.includes("auth-token")) {
-            localStorage.removeItem(key);
-          }
-        }
-        try {
-          await supabase.auth.signOut();
-        } catch (e) {
-          // ignore error
-        }
-        return;
-      }
-      
-      if (!session) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("userId");
-        return;
-      }
-
-      // Email verification check removed as requested
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", session.user.id)
-        .maybeSingle();
-
-      if (profile && !profileError) {
-        const userData: UserSessionData = {
-          id: profile.id,
-          username: profile.username,
-          display_name: profile.display_name,
-          bio: profile.bio,
-          discord: profile.discord,
-          avatar_url: profile.avatar_url,
-          is_verified: profile.is_verified,
-          created_at: profile.created_at,
-          clan_emoji: profile.clan_emoji,
-          email: session.user.email
-        };
-        
-        setCurrentUser(userData);
-        localStorage.setItem("token", session.access_token);
-        localStorage.setItem("userId", session.user.id);
-      } else {
-        localStorage.removeItem("token");
-        localStorage.removeItem("userId");
-      }
-    } catch (err) {
-      console.error("Session restore error:", err);
-      localStorage.removeItem("token");
-      localStorage.removeItem("userId");
-    }
-  };
-
-  // Set up auth state listener
+  // Set up unified safe auth session handling
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .maybeSingle();
+    let authSubscription: any = null;
+    let isMounted = true;
 
-        if (profile) {
-          const u: UserSessionData = {
-            id: profile.id,
-            username: profile.username,
-            display_name: profile.display_name,
-            bio: profile.bio,
-            discord: profile.discord,
-            avatar_url: profile.avatar_url,
-            is_verified: profile.is_verified,
-            created_at: profile.created_at,
-            clan_emoji: profile.clan_emoji,
-            email: session.user.email
-          };
-          setCurrentUser(u);
-          localStorage.setItem("token", session.access_token);
-          localStorage.setItem("userId", session.user.id);
+    const initAuth = async () => {
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.warn("Session restore error encountered:", sessionError);
+          localStorage.removeItem("token");
+          localStorage.removeItem("userId");
+          if (isMounted) setCurrentUser(null);
+          return;
         }
-      } else {
-        setCurrentUser(null);
-        localStorage.removeItem("token");
-        localStorage.removeItem("userId");
+        
+        if (session && isMounted) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", session.user.id)
+            .maybeSingle();
+
+          if (profile && isMounted) {
+            const u: UserSessionData = {
+              id: profile.id,
+              username: profile.username,
+              display_name: profile.display_name,
+              bio: profile.bio,
+              discord: profile.discord,
+              avatar_url: profile.avatar_url,
+              is_verified: profile.is_verified,
+              created_at: profile.created_at,
+              clan_emoji: profile.clan_emoji,
+              email: session.user.email
+            };
+            setCurrentUser(u);
+            localStorage.setItem("token", session.access_token);
+            localStorage.setItem("userId", session.user.id);
+          }
+        } else {
+          localStorage.removeItem("token");
+          localStorage.removeItem("userId");
+          if (isMounted) setCurrentUser(null);
+        }
+      } catch (err) {
+        console.error("Session restore error:", err);
+      } finally {
+        if (isMounted) {
+          fetchPosts();
+        }
       }
-      
-      fetchPosts();
-    });
+
+      // Configure onAuthStateChange for future transitions (login, logout, etc.)
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (!isMounted) return;
+        
+        if (event === "SIGNED_IN" && session) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", session.user.id)
+            .maybeSingle();
+
+          if (profile && isMounted) {
+            const u: UserSessionData = {
+              id: profile.id,
+              username: profile.username,
+              display_name: profile.display_name,
+              bio: profile.bio,
+              discord: profile.discord,
+              avatar_url: profile.avatar_url,
+              is_verified: profile.is_verified,
+              created_at: profile.created_at,
+              clan_emoji: profile.clan_emoji,
+              email: session.user.email
+            };
+            setCurrentUser(u);
+            localStorage.setItem("token", session.access_token);
+            localStorage.setItem("userId", session.user.id);
+          }
+          fetchPosts();
+        } else if (event === "SIGNED_OUT") {
+          setCurrentUser(null);
+          localStorage.removeItem("token");
+          localStorage.removeItem("userId");
+          fetchPosts();
+        }
+      });
+
+      authSubscription = subscription;
+    };
+
+    initAuth();
 
     return () => {
-      subscription.unsubscribe();
+      isMounted = false;
+      if (authSubscription) {
+        authSubscription.unsubscribe();
+      }
     };
   }, []);
 
-  // Check session and URL params on mount
+  // Check URL params on mount
   useEffect(() => {
-    const initApp = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const modParam = params.get("admin") || params.get("moderation");
-      if (modParam === "RealMaveboAdminModeration67") {
-        setAdminPassword("RealMaveboAdminModeration67");
-        alert("Moderator mode unlocked via URL access!");
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-
-      await restoreSession();
-      await fetchPosts();
-    };
-
-    initApp();
+    const params = new URLSearchParams(window.location.search);
+    const modParam = params.get("admin") || params.get("moderation");
+    if (modParam === "RealMaveboAdminModeration67") {
+      setAdminPassword("RealMaveboAdminModeration67");
+      alert("Moderator mode unlocked via URL access!");
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, []);
 
   const handleURLRouting = () => {
@@ -1157,6 +1123,10 @@ export default function App() {
     return contentMatches || authorMatches || profileMatches;
   });
 
+  const profileUserPosts = posts.filter((post) => {
+    return profilePageData && post.user_id === profilePageData.id;
+  });
+
   const isDark = true;
   const glassClass = "liquid-glass-dark";
   const bgClass = "bg-[#0c0a15] text-[#f1eefc]";
@@ -1548,10 +1518,7 @@ export default function App() {
                 ) : (
                   <div className="space-y-4">
                     {loadingPosts && posts.length === 0 ? (
-                      <div className="py-20 text-center space-y-3">
-                        <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                        <p className="text-zinc-550 text-xs tracking-wider uppercase font-mono">Acquiring Broadcast streams...</p>
-                      </div>
+                      <GhostLoader />
                     ) : feedTab === "clan" && !currentUser ? (
                       <div id="no-clan-logged-in" className={`p-16 text-center border border-zinc-800/80 rounded-2xl bg-[#121118]/30`}>
                         <p className="text-xs text-zinc-400 font-medium">Please register or log in first to view clan broadcasts.</p>
@@ -1616,10 +1583,7 @@ export default function App() {
                 </div>
 
                 {loadingActivePost ? (
-                  <div className="py-16 text-center space-y-3">
-                    <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                    <p className="text-zinc-500 text-xs uppercase font-mono tracking-widest">Acquiring Broadcast details...</p>
-                  </div>
+                  <GhostLoader />
                 ) : activePostError ? (
                   <div className={`p-8 border border-red-500/10 bg-red-500/5 text-red-500 rounded-2xl text-center space-y-3`}>
                     <p className="text-xs font-semibold">{activePostError}</p>
@@ -1804,7 +1768,7 @@ export default function App() {
                           <div className="flex items-center space-x-2 text-[10px] text-purple-300 font-mono bg-purple-950/20 border border-purple-500/10 px-3 py-1.5 rounded-full">
                             <FileText className="w-3.5 h-3.5 text-purple-400" />
                             <span className="font-bold uppercase opacity-85">Posts:</span>
-                            <span className="text-white font-bold">{profilePageData?.posts?.length || 0}</span>
+                            <span className="text-white font-bold">{profileUserPosts.length}</span>
                           </div>
                         </div>
                       </div>
@@ -1814,24 +1778,19 @@ export default function App() {
                       <h4 className="text-xs font-extrabold uppercase font-mono tracking-widest text-zinc-550">My Broadcast History</h4>
                       
                       {profileLoading ? (
-                        <div className="py-12 text-center">
-                          <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                          <p className="text-[10px] tracking-wider uppercase font-mono text-zinc-500">Retrieving posts...</p>
-                        </div>
-                      ) : profilePageData?.posts && profilePageData.posts.length > 0 ? (
+                        <GhostLoader />
+                      ) : profileUserPosts.length > 0 ? (
                         <div className="space-y-4">
-                          {profilePageData.posts.map((post: Post) => (
+                          {profileUserPosts.map((post: Post) => (
                             <PostCard 
                               key={post.id}
                               post={post}
                               currentUser={currentUser}
                               onPostUpdated={() => {
                                 fetchPosts();
-                                if (currentUser) fetchUserProfileData(currentUser.username);
                               }}
                               onPostDeleted={() => {
                                 fetchPosts();
-                                if (currentUser) fetchUserProfileData(currentUser.username);
                               }}
                               onOpenUserProfile={(name) => navigateTo("user-profile", { username: name })}
                               onClickPost={(id) => navigateTo("post-detail", { postId: id })}
@@ -2047,10 +2006,7 @@ export default function App() {
                 </div>
 
                 {profileLoading ? (
-                  <div className="py-20 text-center space-y-3">
-                    <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                    <p className="text-[10px] font-mono tracking-widest text-zinc-500 uppercase">Synchronizing profile metadata...</p>
-                  </div>
+                  <GhostLoader />
                 ) : profileError ? (
                   <div className={`p-8 border border-red-550/10 bg-red-500/5 text-red-500 rounded-2xl text-center space-y-2`}>
                     <p className="text-xs font-semibold">{profileError}</p>
@@ -2152,7 +2108,7 @@ export default function App() {
                           <div className="flex items-center space-x-2 text-[10px] text-purple-300 font-mono bg-purple-950/20 border border-purple-500/10 px-3 py-1.5 rounded-full">
                             <FileText className="w-3.5 h-3.5 text-purple-400" />
                             <span className="font-bold uppercase opacity-85">Posts:</span>
-                            <span className="text-white font-bold">{profilePageData.posts?.length || 0}</span>
+                            <span className="text-white font-bold">{profileUserPosts.length}</span>
                           </div>
                         </div>
                       </div>
@@ -2164,20 +2120,18 @@ export default function App() {
                         Publications by @{profilePageData.username}
                       </h4>
                       
-                      {profilePageData.posts && profilePageData.posts.length > 0 ? (
+                      {profileUserPosts.length > 0 ? (
                         <div className="space-y-4">
-                          {profilePageData.posts.map((post: Post) => (
+                          {profileUserPosts.map((post: Post) => (
                             <PostCard 
                               key={post.id}
                               post={post}
                               currentUser={currentUser}
                               onPostUpdated={() => {
                                 fetchPosts();
-                                fetchUserProfileData(profilePageData.username);
                               }}
                               onPostDeleted={() => {
                                 fetchPosts();
-                                fetchUserProfileData(profilePageData.username);
                               }}
                               onOpenUserProfile={(name) => navigateTo("user-profile", { username: name })}
                               onClickPost={(id) => navigateTo("post-detail", { postId: id })}
