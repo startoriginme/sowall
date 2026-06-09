@@ -11,6 +11,7 @@ export interface Profile {
   bio: string | null; // Stores JSON text for bio, discord, email, etc.
   is_verified: boolean;
   created_at: string;
+  clan_emoji?: string | null;
 }
 
 export interface PostLike {
@@ -53,4 +54,5 @@ export interface UserSessionData {
   discord: string;
   email_verified?: boolean;
   created_at?: string;
+  clan_emoji?: string | null;
 }

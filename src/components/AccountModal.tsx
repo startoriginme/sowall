@@ -132,57 +132,35 @@ export default function AccountModal({
       setRegError(null);
       setRegSuccess(null);
 
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: regEmail.trim(),
-        password: regPassword,
-        options: {
-          data: {
-            display_name: regName.trim(),
-            username: cleanUsername,
-          }
-        }
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: regName.trim(),
+          username: cleanUsername,
+          email: regEmail.trim(),
+          password: regPassword
+        })
       });
 
-      if (authError) throw authError;
-
-      if (authData.user) {
-        const isVerifiedUser = cleanUsername === "kodewt" || cleanUsername === "mavebo" || cleanUsername === "kode" || cleanUsername === "jocko" || cleanUsername === "dil_doe";
-        const bioData = JSON.stringify({
-          text: "",
-          discord: "",
-          email: regEmail.trim(),
-        });
-
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .insert({
-            id: authData.user.id,
-            username: cleanUsername,
-            display_name: regName.trim(),
-            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`,
-            bio: bioData,
-            is_verified: isVerifiedUser,
-            created_at: new Date().toISOString()
-          });
-
-        if (profileError) {
-          console.error("Profile creation error:", profileError);
-          setRegError("Account created but profile setup failed. Please try logging in.");
-          return;
-        }
-
-        setRegSuccess("Perfect! Now login.");
-        
-        setRegName("");
-        setRegUsername("");
-        setRegEmail("");
-        setRegPassword("");
-        
-        setTimeout(() => {
-          setAuthView("login");
-          setRegSuccess(null);
-        }, 2000);
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || "Failed to register account.");
       }
+
+      setRegSuccess(resData.message || "Perfect! Please verify your email and login.");
+      
+      setRegName("");
+      setRegUsername("");
+      setRegEmail("");
+      setRegPassword("");
+      
+      setTimeout(() => {
+        setAuthView("login");
+        setRegSuccess(null);
+      }, 3000);
     } catch (err: any) {
       console.error("Registration error:", err);
       const msg = err.message || "Failed to register.";
@@ -370,18 +348,25 @@ export default function AccountModal({
   const handleDeleteOwnPost = async (postId: string) => {
     if (!window.confirm("Are you sure you want to delete this post?")) return;
     try {
-      const { error } = await supabase
-        .from("posts")
-        .delete()
-        .eq("id", postId);
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/posts/${postId}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": token ? `Bearer ${token}` : "",
+          "Content-Type": "application/json"
+        }
+      });
       
-      if (error) throw error;
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || "Failed to delete post.");
+      }
       
       setProfilePosts(profilePosts.filter(p => p.id !== postId));
       if (onPostDeleted) onPostDeleted();
-    } catch (e) {
+    } catch (e: any) {
       console.error("Delete error:", e);
-      alert("Error deleting post.");
+      alert(e.message || "Error deleting post.");
     }
   };
 
@@ -532,7 +517,7 @@ export default function AccountModal({
                         placeholder="your@email.com"
                         value={loginEmail}
                         onChange={(e) => setLoginEmail(e.target.value)}
-                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none transition-all"
+                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-base text-slate-100 focus:outline-none transition-all"
                       />
                     </div>
 
@@ -545,7 +530,7 @@ export default function AccountModal({
                         placeholder="••••••••"
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
-                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none transition-all"
+                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-base text-slate-100 focus:outline-none transition-all"
                       />
                     </div>
 
@@ -592,7 +577,7 @@ export default function AccountModal({
                         placeholder="Public name (e.g. Jane Doe)"
                         value={regName}
                         onChange={(e) => setRegName(e.target.value)}
-                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none"
+                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-base text-slate-100 focus:outline-none"
                       />
                     </div>
 
@@ -604,7 +589,7 @@ export default function AccountModal({
                         placeholder="e.g. dots.and_underscores"
                         value={regUsername}
                         onChange={(e) => setRegUsername(e.target.value.toLowerCase().replace(/\s/g, ""))}
-                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none font-mono"
+                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-base text-slate-100 focus:outline-none font-mono"
                       />
                     </div>
 
@@ -616,7 +601,7 @@ export default function AccountModal({
                         placeholder="email@address.com"
                         value={regEmail}
                         onChange={(e) => setRegEmail(e.target.value)}
-                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none"
+                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-base text-slate-100 focus:outline-none"
                       />
                     </div>
 
@@ -629,7 +614,7 @@ export default function AccountModal({
                         placeholder="••••••••"
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
-                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none"
+                        className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2.5 text-base text-slate-100 focus:outline-none"
                       />
                     </div>
 
@@ -715,7 +700,7 @@ export default function AccountModal({
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
                           placeholder="Public handle signee"
-                          className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none"
+                          className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-base text-slate-200 focus:outline-none"
                         />
                       </div>
 
@@ -728,7 +713,7 @@ export default function AccountModal({
                           value={editUsername}
                           onChange={(e) => setEditUsername(e.target.value.toLowerCase().replace(/\s/g, ""))}
                           placeholder="e.g. dots.and_underscores"
-                          className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none font-mono"
+                          className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-base text-slate-200 focus:outline-none font-mono"
                         />
                       </div>
 
@@ -740,7 +725,7 @@ export default function AccountModal({
                           value={editBio}
                           onChange={(e) => setEditBio(e.target.value)}
                           placeholder="Tell us about yourself..."
-                          className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none resize-none"
+                          className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-base text-slate-200 focus:outline-none resize-none"
                         />
                       </div>
 
@@ -752,7 +737,7 @@ export default function AccountModal({
                           value={editDiscord}
                           onChange={(e) => setEditDiscord(e.target.value)}
                           placeholder="e.g. mystic_wanderer"
-                          className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none"
+                          className="w-full bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-base text-slate-200 focus:outline-none"
                         />
                       </div>
 
@@ -775,7 +760,7 @@ export default function AccountModal({
                             value={editAvatarUrl}
                             onChange={(e) => setEditAvatarUrl(e.target.value)}
                             placeholder="Or paste direct image address URL..."
-                            className="flex-1 bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none"
+                            className="flex-1 bg-[#121118] border border-slate-900 focus:border-purple-500/30 rounded-xl px-3.5 py-2 text-base text-slate-200 focus:outline-none"
                           />
                         </div>
                       </div>

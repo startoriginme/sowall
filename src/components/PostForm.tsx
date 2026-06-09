@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Send, UserCheck, ShieldAlert, Sparkles, Hash, Paperclip, BarChart3, Plus, Trash2, Image, X, Repeat } from "lucide-react";
 import { UserSessionData, Post } from "../types";
 import { supabase } from "../lib/supabase";
+import SlidingCaptcha from "./SlidingCaptcha";
 
 interface PostFormProps {
   currentUser: UserSessionData | null;
@@ -23,6 +24,30 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
   const [customName, setCustomName] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [postCaptchaPassed, setPostCaptchaPassed] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+
+  React.useEffect(() => {
+    const checkCooldown = () => {
+      const lastPostString = localStorage.getItem("last_post_time");
+      if (lastPostString) {
+        const lastPostTime = parseInt(lastPostString, 10);
+        const elapsed = Date.now() - lastPostTime;
+        const cooldownMs = 5 * 60 * 1000;
+        if (elapsed < cooldownMs) {
+          setCooldownSeconds(Math.ceil((cooldownMs - elapsed) / 1000));
+        } else {
+          setCooldownSeconds(0);
+        }
+      } else {
+        setCooldownSeconds(0);
+      }
+    };
+
+    checkCooldown();
+    const interval = setInterval(checkCooldown, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Attachment states
   const [attachedFile, setAttachedFile] = useState<{ name: string; type: string; data: string } | null>(null);
@@ -75,6 +100,10 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!postCaptchaPassed) {
+      setErrorMsg("Please drag the slider to verify before publishing.");
+      return;
+    }
     if (!content.trim()) {
       setErrorMsg("Please enter text content for your publication.");
       return;
@@ -126,31 +155,35 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
       setLoading(true);
       setErrorMsg(null);
 
-      // Prepare post data for Supabase
-      const postData: any = {
-        content: finalContent,
-        created_at: new Date().toISOString(),
+      const token = localStorage.getItem("token");
+      const headers: any = {
+        "Content-Type": "application/json"
       };
-
-      // Handle authorship
-      if (currentUser && postMode === "account") {
-        postData.user_id = currentUser.id;
-        postData.author_name = currentUser.username;
-      } else if (postMode === "custom" && customName.trim()) {
-        postData.author_name = customName.trim();
-        postData.user_id = null;
-      } else {
-        // Anonymous mode
-        postData.author_name = "Anonymous";
-        postData.user_id = null;
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
       }
 
-      // Insert into Supabase
-      const { error } = await supabase
-        .from("posts")
-        .insert(postData);
+      const res = await fetch("/api/posts", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          content: finalContent,
+          is_anonymous: postMode === "anonymous",
+          custom_name: postMode === "custom" ? customName : undefined
+        })
+      });
 
-      if (error) throw error;
+      const resData = await res.json();
+      if (!res.ok || !resData.success) {
+        if (res.status === 429 || resData.error === "rate_limited") {
+          const remainingSeconds = resData.remainingSeconds || 300;
+          localStorage.setItem("last_post_time", (Date.now() - (5 * 60 * 1000 - remainingSeconds * 1000)).toString());
+        }
+        throw new Error(resData.message || resData.error || "Failed to publish post.");
+      }
+
+      // Store local timestamp on success
+      localStorage.setItem("last_post_time", Date.now().toString());
 
       // Clear form and close
       setContent("");
@@ -159,6 +192,7 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
       setPollQuestion("");
       setPollOptions(["", ""]);
       setShowPollCreator(false);
+      setPostCaptchaPassed(false);
       if (onClearRepost) onClearRepost();
       onPostCreated();
       if (onClose) onClose();
@@ -175,7 +209,15 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
 
   return (
     <div className="bg-[#0b0b0f] text-slate-200 text-left font-sans">
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form 
+        onSubmit={handleSubmit} 
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !postCaptchaPassed) {
+            e.preventDefault();
+          }
+        }}
+        className="space-y-4"
+      >
         {/* Top input area */}
         <div className="space-y-2">
           <textarea
@@ -484,25 +526,39 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
         )}
 
         {/* Submit action */}
-        <div className="flex items-center justify-end pt-1">
-          <button
-            id="submit-post-btn"
-            type="submit"
-            disabled={loading}
-            className="w-full sm:w-auto bg-purple-600 hover:bg-purple-500 active:bg-purple-700 disabled:bg-purple-900 transition-all px-5 py-2.5 rounded-xl font-bold text-xs text-white flex items-center justify-center space-x-2 cursor-pointer shadow-md shadow-purple-500/10"
-          >
-            {loading ? (
-              <>
-                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Publishing...</span>
-              </>
-            ) : (
-              <>
-                <Send className="w-3.5 h-3.5" />
-                <span>Publish Post</span>
-              </>
-            )}
-          </button>
+        <div className="flex flex-col gap-3.5 pt-1.5">
+          <div className="w-full">
+            <SlidingCaptcha onSuccess={() => setPostCaptchaPassed(true)} resetKey={content ? 1 : 0} />
+          </div>
+
+          <div className="flex items-center justify-end">
+            <button
+              id="submit-post-btn"
+              type="submit"
+              disabled={loading || !postCaptchaPassed || cooldownSeconds > 0}
+              className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-xs text-white flex items-center justify-center space-x-2 cursor-pointer shadow-md transition-all ${
+                (!postCaptchaPassed || cooldownSeconds > 0)
+                  ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-800"
+                  : "bg-purple-600 hover:bg-purple-500 active:bg-purple-700 shadow-purple-500/10 active:scale-98"
+              }`}
+            >
+              {loading ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Publishing...</span>
+                </>
+              ) : cooldownSeconds > 0 ? (
+                <>
+                  <span>Publish (Cooldown: {Math.floor(cooldownSeconds / 60)}m {cooldownSeconds % 60}s)</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Publish Post</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </form>
     </div>

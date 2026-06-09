@@ -237,21 +237,28 @@ export default function PostCard({
   const handleDeletePost = async () => {
     if (!window.confirm("Are you sure you want to permanently delete this post from the wall?")) return;
     try {
-      const { error } = await supabase
-        .from("posts")
-        .delete()
-        .eq("id", post.id);
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/posts/${post.id}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": token ? `Bearer ${token}` : "",
+          "Content-Type": "application/json"
+        }
+      });
       
-      if (error) throw error;
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || "Failed to delete post.");
+      }
       
       if (onPostDeleted) {
         onPostDeleted();
       } else {
         onPostUpdated();
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to delete post:", e);
-      alert("Failed to delete post.");
+      alert(e.message || "Failed to delete post.");
     }
   };
 
@@ -405,6 +412,9 @@ export default function PostCard({
                       (post.profiles as any).username.toLowerCase() === "dil_doe"
                     ) && (
                       <BadgeCheck className="w-3.5 h-3.5 text-purple-400 shrink-0 fill-purple-950 inline-block" />
+                    )}
+                    {(post.profiles as any).clan_emoji && (
+                      <span className="text-xs shrink-0 inline-block ml-0.5" title="Clan Emoji">{(post.profiles as any).clan_emoji}</span>
                     )}
                   </div>
                   <span className="text-[10px] text-slate-500">
@@ -578,11 +588,14 @@ export default function PostCard({
                     </div>
                   )}
                   <div className="flex items-center space-x-1 flex-wrap text-[11px]">
-                    <span className="font-bold text-purple-200">
-                      {metadata.repost.profiles && typeof metadata.repost.profiles === "object"
+                    <span className="font-bold text-purple-200 flex items-center gap-1">
+                      <span>{metadata.repost.profiles && typeof metadata.repost.profiles === "object"
                         ? metadata.repost.profiles.display_name || metadata.repost.profiles.username
                         : metadata.repost.author_name || "Anonymous"
-                      }
+                      }</span>
+                      {metadata.repost.profiles && typeof metadata.repost.profiles === "object" && metadata.repost.profiles.clan_emoji && (
+                        <span className="text-xs" title="Clan Emoji">{metadata.repost.profiles.clan_emoji}</span>
+                      )}
                     </span>
                     {metadata.repost.profiles && typeof metadata.repost.profiles === "object" && (
                       <span className="text-slate-500 font-mono">@{metadata.repost.profiles.username}</span>
@@ -705,9 +718,12 @@ export default function PostCard({
                           {commentHasProfile ? (
                             <button
                               onClick={() => onOpenUserProfile((comment.profiles as any).username)}
-                              className="font-bold text-xs text-purple-300 hover:underline cursor-pointer"
+                              className="font-bold text-xs text-purple-300 hover:underline cursor-pointer flex items-center gap-1"
                             >
-                              {(comment.profiles as any).display_name || (comment.profiles as any).username}
+                              <span>{(comment.profiles as any).display_name || (comment.profiles as any).username}</span>
+                              {(comment.profiles as any).clan_emoji && (
+                                <span className="text-xs" title="Clan Emoji">{(comment.profiles as any).clan_emoji}</span>
+                              )}
                             </button>
                           ) : (
                             <span className="font-bold text-xs text-slate-405">{comment.author_name || "Anonymous"}</span>

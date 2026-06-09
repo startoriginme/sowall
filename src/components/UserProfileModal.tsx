@@ -150,12 +150,19 @@ export default function UserProfileModal({
   const handleDeletePost = async (postId: string) => {
     if (!window.confirm("Are you sure you want to delete this post?")) return;
     try {
-      const { error } = await supabase
-        .from("posts")
-        .delete()
-        .eq("id", postId);
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/posts/${postId}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": token ? `Bearer ${token}` : "",
+          "Content-Type": "application/json"
+        }
+      });
       
-      if (error) throw error;
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || "Failed to delete post.");
+      }
       
       // Update local state
       if (profileData) {
@@ -166,9 +173,9 @@ export default function UserProfileModal({
         });
       }
       if (onPostDeleted) onPostDeleted();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error deleting post:", err);
-      alert("Error deleting post.");
+      alert(err.message || "Error deleting post.");
     }
   };
 
@@ -235,6 +242,9 @@ export default function UserProfileModal({
                           profileData.username.toLowerCase() === "dil_doe"
                         ) && (
                           <BadgeCheck className="w-5 h-5 text-purple-400 shrink-0 fill-purple-950 inline-block" />
+                        )}
+                        {(profileData as any).clan_emoji && (
+                          <span className="text-xl shrink-0 inline-block ml-1" title="Clan Emoji">{(profileData as any).clan_emoji}</span>
                         )}
                       </div>
                       <p className="text-slate-400 text-sm">@{profileData.username}</p>

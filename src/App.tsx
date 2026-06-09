@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   HelpCircle, User, Shield, ShieldCheck, Search, RefreshCw, 
@@ -14,9 +14,15 @@ import { Post, UserSessionData } from "./types";
 import AboutModal from "./components/AboutModal";
 import CreatePostModal from "./components/CreatePostModal";
 import PostCard from "./components/PostCard";
+import SlidingCaptcha from "./components/SlidingCaptcha";
+import SettingsModal from "./components/SettingsModal";
 import { supabase } from "./lib/supabase";
 
 export default function App() {
+  const [activeView, setActiveView] = useState<"feed" | "profile" | "user-profile" | "settings" | "post-detail" | "admin">("feed");
+  const [activeUsername, setActiveUsername] = useState<string | null>(null);
+  const [activePostId, setActivePostId] = useState<string | null>(null);
+
   const [posts, setPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [postsError, setPostsError] = useState<string | null>(null);
@@ -39,16 +45,170 @@ export default function App() {
   // Modals visibility states
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [feedTab, setFeedTab] = useState<"global" | "clan">("global");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [repostOfPost, setRepostOfPost] = useState<Post | null>(null);
 
-  // Admin moderation panel password (unlocked dynamically via URL parameter)
+  const directAvatarInputRef = useRef<HTMLInputElement>(null);
+  const directBannerInputRef = useRef<HTMLInputElement>(null);
+
+  // Admin states
   const [adminPassword, setAdminPassword] = useState<string>("");
+  const [adminInputPass, setAdminInputPass] = useState("");
+  const [adminAuthPassword, setAdminAuthPassword] = useState(() => {
+    return sessionStorage.getItem("admin_auth_pass") || "";
+  });
+  const [adminStats, setAdminStats] = useState<any>(null);
+  const [loadingAdminStats, setLoadingAdminStats] = useState(false);
+  const [adminStatsError, setAdminStatsError] = useState<string | null>(null);
+  const [adminActiveTab, setAdminActiveTab] = useState<"stats" | "security" | "moderation">("stats");
+
+  // Auth Captcha slide validation state
+  const [authCaptchaPassed, setAuthCaptchaPassed] = useState(false);
+
+  const fetchAdminStats = async () => {
+    try {
+      setLoadingAdminStats(true);
+      setAdminStatsError(null);
+      const res = await fetch("/api/admin/system-stats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminAuthPassword })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdminStats(data);
+      } else {
+        setAdminStatsError(data.error || "Failed to load admin stats.");
+      }
+    } catch (err: any) {
+      setAdminStatsError(err.message || "Failed to reach server.");
+    } finally {
+      setLoadingAdminStats(false);
+    }
+  };
+
+  useEffect(() => {
+    if (adminAuthPassword === "RealMaveboStenaAdminModeration67" && activeView === "admin") {
+      fetchAdminStats();
+    }
+  }, [adminAuthPassword, activeView]);
+
+  const handleBlockAction = async (payload: { ip?: string; userAgent?: string }) => {
+    try {
+      const res = await fetch("/api/admin/block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: adminAuthPassword,
+          ...payload
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Blocked successfully.");
+        fetchAdminStats();
+      } else {
+        alert(data.error || "Block trigger failed.");
+      }
+    } catch (e: any) {
+      alert("Network error: " + e.message);
+    }
+  };
+
+  const handleUnblockAction = async (payload: { ip?: string; userAgent?: string }) => {
+    try {
+      const res = await fetch("/api/admin/unblock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: adminAuthPassword,
+          ...payload
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Unblocked successfully.");
+        fetchAdminStats();
+      } else {
+        alert(data.error || "Unblock trigger failed.");
+      }
+    } catch (e: any) {
+      alert("Network error: " + e.message);
+    }
+  };
+
+  const adminDeletePost = async (postId: string) => {
+    if (!window.confirm("Are you sure you want to delete this post as moderator?")) return;
+    try {
+      const res = await fetch(`/api/posts/${postId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminAuthPassword })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Deleted successfully.");
+        fetchPosts();
+        fetchAdminStats();
+      } else {
+        alert(data.error || "Deletion failed.");
+      }
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    }
+  };
+
+  const adminDeleteComment = async (commentId: string) => {
+    if (!window.confirm("Are you sure you want to delete this comment as moderator?")) return;
+    try {
+      const res = await fetch(`/api/comments/${commentId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminAuthPassword })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Deleted successfully.");
+        fetchPosts();
+        fetchAdminStats();
+      } else {
+        alert(data.error || "Deletion failed.");
+      }
+    } catch (e: any) {
+      alert("Error: " + e.message);
+    }
+  };
+
+  // Heartbeat trigger hook
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const triggerHeartbeat = async () => {
+      try {
+        await fetch("/api/user/heartbeat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: currentUser.username,
+            userId: currentUser.id,
+            displayName: currentUser.display_name,
+            avatarUrl: currentUser.avatar_url
+          })
+        });
+      } catch (err) {
+        // silent fail
+      }
+    };
+
+    triggerHeartbeat();
+    const interval = setInterval(triggerHeartbeat, 25000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   // Clean Apple App routing states replacing the modal:
-  // "feed" | "profile" | "user-profile" | "settings" | "post-detail"
-  const [activeView, setActiveView] = useState<"feed" | "profile" | "user-profile" | "settings" | "post-detail">("feed");
-  const [activeUsername, setActiveUsername] = useState<string | null>(null);
-  const [activePostId, setActivePostId] = useState<string | null>(null);
+  // Already declared at the top of the file.
 
   const [activePost, setActivePost] = useState<Post | null>(null);
   const [loadingActivePost, setLoadingActivePost] = useState(false);
@@ -127,9 +287,13 @@ export default function App() {
 
   // State-based standard router synchronization (saves history & keeps URL intact)
   const navigateTo = (view: typeof activeView, params?: { username?: string; postId?: string }) => {
+    if (view === "settings") {
+      setIsSettingsOpen(true);
+      return;
+    }
     let path = "/";
     if (view === "profile") path = "/profile";
-    else if (view === "settings") path = "/settings";
+    else if (view === "admin") path = "/admin";
     else if (view === "user-profile" && params?.username) path = `/profile/${params.username}`;
     else if (view === "post-detail" && params?.postId) path = `/post/${params.postId}`;
 
@@ -234,7 +398,16 @@ export default function App() {
     try {
       setProfileLoading(true);
       setProfileError(null);
-      setProfilePageData(null);
+
+      // Cache lookup for ultra responsive loading speed
+      const cacheKey = `cached_profile_${username.toLowerCase()}`;
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          setProfilePageData(JSON.parse(cached));
+          setProfileLoading(false);
+        }
+      } catch (e) {}
 
       // Step 1: case-insensitive query to prevent issue with lowercase-uppercase mismatches (supports @dil_doe)
       const { data: profile, error: profileError } = await supabase
@@ -290,15 +463,22 @@ export default function App() {
         }
       }
 
-      setProfilePageData({
+      const freshProfileData = {
         ...profile,
         bio: cleanBio,
         banner_url: bannerUrl,
         posts: sortedPosts
-      });
+      };
+
+      setProfilePageData(freshProfileData);
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(freshProfileData));
+      } catch (e) {}
     } catch (err: any) {
       console.error("Failed to fetch public profile details:", err);
-      setProfileError(err.message || "Could not retrieve user details.");
+      if (!localStorage.getItem(`cached_profile_${username.toLowerCase()}`)) {
+        setProfileError(err.message || "Could not retrieve user details.");
+      }
     } finally {
       setProfileLoading(false);
     }
@@ -310,6 +490,15 @@ export default function App() {
       setLoadingPosts(true);
       setPostsError(null);
       
+      // Loading states optimization via cache lookup
+      try {
+        const cached = localStorage.getItem("cache_posts");
+        if (cached && posts.length === 0) {
+          setPosts(JSON.parse(cached));
+          setLoadingPosts(false);
+        }
+      } catch (e) {}
+
       const { data: postsData, error: postsError } = await supabase
         .from("posts")
         .select(`
@@ -336,9 +525,14 @@ export default function App() {
       });
 
       setPosts(enrichedPosts);
+      try {
+        localStorage.setItem("cache_posts", JSON.stringify(enrichedPosts));
+      } catch (e) {}
     } catch (err: any) {
       console.error("Direct db posts fetch error:", err);
-      setPostsError("Network error while trying to retrieve feed directly from the database.");
+      if (!localStorage.getItem("cache_posts")) {
+        setPostsError("Network error while trying to retrieve feed directly from the database.");
+      }
     } finally {
       setLoadingPosts(false);
     }
@@ -372,6 +566,7 @@ export default function App() {
         return;
       }
 
+      // Email verification check removed as requested
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("*")
@@ -488,7 +683,11 @@ export default function App() {
       }
       return;
     } else if (path === "/settings") {
-      setActiveView("settings");
+      setActiveView("feed");
+      setIsSettingsOpen(true);
+      return;
+    } else if (path === "/admin") {
+      setActiveView("admin" as any);
       return;
     }
     setActiveView("feed");
@@ -549,6 +748,10 @@ export default function App() {
   // Handle Login submission
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!authCaptchaPassed) {
+      setLoginError("Please drag the slider to verify before logging in.");
+      return;
+    }
     if (!loginEmail || !loginPassword) {
       setLoginError("Please enter your email and password.");
       return;
@@ -613,8 +816,18 @@ export default function App() {
   // Handle Registration submission
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!authCaptchaPassed) {
+      setRegError("Please drag the slider to verify before registering.");
+      return;
+    }
     if (!regName || !regUsername || !regEmail || !regPassword) {
       setRegError("All fields are required.");
+      return;
+    }
+
+    const nameContainsEmoji = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g.test(regName);
+    if (nameContainsEmoji) {
+      setRegError("Emojis are not allowed in your Display Name.");
       return;
     }
 
@@ -634,61 +847,30 @@ export default function App() {
       setRegError(null);
       setRegSuccess(null);
 
-      // Verify username availability first (case-insensitive)
-      const { data: existingUser } = await supabase
-        .from("profiles")
-        .select("username")
-        .ilike("username", cleanUsername)
-        .maybeSingle();
-
-      if (existingUser) {
-        setRegError("Username has already been claimed by another user.");
-        setRegLoading(false);
-        return;
-      }
-
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: regEmail.trim(),
-        password: regPassword,
-        options: {
-          data: {
-            display_name: regName.trim(),
-            username: cleanUsername,
-          }
-        }
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: regName.trim(),
+          username: cleanUsername,
+          email: regEmail.trim(),
+          password: regPassword
+        })
       });
 
-      if (authError) throw authError;
-
-      if (authData.user) {
-        const isVerifiedUser = ["kodewt", "mavebo", "kode", "jocko", "dil_doe"].includes(cleanUsername);
-        const bioData = JSON.stringify({
-          text: "",
-          discord: "",
-          email: regEmail.trim(),
-        });
-
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .insert({
-            id: authData.user.id,
-            username: cleanUsername,
-            display_name: regName.trim(),
-            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`,
-            bio: bioData,
-            is_verified: isVerifiedUser,
-            created_at: new Date().toISOString()
-          });
-
-        if (profileError) throw profileError;
-
-        setRegSuccess("Congratulations! Registration complete. You can sign in now.");
-        setRegName("");
-        setRegUsername("");
-        setRegEmail("");
-        setRegPassword("");
-        setTimeout(() => setAuthTab("login"), 1500);
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || "Failed to register account.");
       }
+
+      setRegSuccess(resData.message || "Congratulations! Registration complete. Please verify your email and sign in.");
+      setRegName("");
+      setRegUsername("");
+      setRegEmail("");
+      setRegPassword("");
+      setTimeout(() => setAuthTab("login"), 2500);
     } catch (err: any) {
       console.error(err);
       const msg = err.message || "Failed to register account.";
@@ -700,6 +882,107 @@ export default function App() {
     } finally {
       setRegLoading(false);
     }
+  };
+
+  const handleUpdateClanEmoji = async (emoji: string | null) => {
+    if (!currentUser) return;
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ clan_emoji: emoji })
+        .eq("id", currentUser.id);
+
+      if (error) throw error;
+
+      // Update local state reactive
+      setCurrentUser({
+        ...currentUser,
+        clan_emoji: emoji
+      } as any);
+      setShowEmojiPicker(false);
+    } catch (e) {
+      console.error("Failed to update clan emoji:", e);
+      alert("Failed to update clan emoji.");
+    }
+  };
+
+  const handleDirectAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentUser) return;
+
+    if (file.size > 1.5 * 1024 * 1024) {
+      alert("Avatar image must be under 1.5MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+      try {
+        const { error } = await supabase
+          .from("profiles")
+          .update({ avatar_url: base64 })
+          .eq("id", currentUser.id);
+
+        if (error) throw error;
+
+        // update local state
+        setCurrentUser({ ...currentUser, avatar_url: base64 });
+        if (profilePageData) {
+          setProfilePageData({ ...profilePageData, avatar_url: base64 });
+        }
+      } catch (err) {
+        console.error("Direct avatar upload error:", err);
+        alert("Failed to upload avatar.");
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDirectBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentUser) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Banner image must be under 2MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result as string;
+      try {
+        let bioText = "";
+        try {
+          const parsed = JSON.parse(currentUser.bio || "{}");
+          bioText = parsed.text || parsed.bio || "";
+        } catch (e) {
+          bioText = currentUser.bio || "";
+        }
+
+        const serializedBio = JSON.stringify({
+          text: bioText,
+          banner_url: base64,
+        });
+
+        const { error } = await supabase
+          .from("profiles")
+          .update({ bio: serializedBio })
+          .eq("id", currentUser.id);
+
+        if (error) throw error;
+
+        // update local state
+        setCurrentUser({ ...currentUser, bio: serializedBio });
+        if (profilePageData) {
+          setProfilePageData({ ...profilePageData, bio: serializedBio });
+        }
+      } catch (err) {
+        console.error("Direct banner upload error:", err);
+        alert("Failed to upload banner.");
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Handle Edit Profile Save
@@ -827,6 +1110,17 @@ export default function App() {
 
   // Filter posts based on query
   const filteredPosts = posts.filter((post) => {
+    // Clan tab filter
+    if (feedTab === "clan") {
+      if (!currentUser || !currentUser.clan_emoji) {
+        return false;
+      }
+      const postClan = (post.profiles as any)?.clan_emoji;
+      if (postClan !== currentUser.clan_emoji) {
+        return false;
+      }
+    }
+
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
 
@@ -1126,6 +1420,33 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Feed view switcher: Global vs My Clan */}
+                <div className="flex items-center space-x-2 border-b border-zinc-805/60 dark:border-zinc-800/40 pb-3 justify-start animate-fade-in">
+                  <button
+                    onClick={() => setFeedTab("global")}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+                      feedTab === "global"
+                        ? "bg-purple-600/20 border border-purple-500/35 text-purple-200"
+                        : "text-zinc-500 hover:text-white border border-transparent"
+                    }`}
+                  >
+                    <span>Global Feed</span>
+                  </button>
+                  <button
+                    onClick={() => setFeedTab("clan")}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
+                      feedTab === "clan"
+                        ? "bg-purple-600/20 border border-purple-500/35 text-purple-200"
+                        : "text-zinc-500 hover:text-white border border-transparent"
+                    }`}
+                  >
+                    <span>My Clan</span>
+                    {currentUser?.clan_emoji && (
+                      <span className="bg-purple-900/40 px-1 py-0.2 rounded text-[11px] font-normal text-purple-200">{currentUser.clan_emoji}</span>
+                    )}
+                  </button>
+                </div>
+
                 {/* Timeline rendering content */}
                 {searchMode === "users" ? (
                   <div className="space-y-3">
@@ -1196,9 +1517,27 @@ export default function App() {
                         <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
                         <p className="text-zinc-550 text-xs tracking-wider uppercase font-mono">Acquiring Broadcast streams...</p>
                       </div>
+                    ) : feedTab === "clan" && !currentUser ? (
+                      <div id="no-clan-logged-in" className={`p-16 text-center border border-zinc-800/80 rounded-2xl bg-[#121118]/30`}>
+                        <p className="text-xs text-zinc-400 font-medium">Please register or log in first to view clan broadcasts.</p>
+                      </div>
+                    ) : feedTab === "clan" && !currentUser?.clan_emoji ? (
+                      <div id="no-clan-emoji-set" className={`p-16 text-center border border-zinc-800/80 rounded-2xl bg-[#121118]/30 space-y-3`}>
+                        <p className="text-xs text-zinc-450 font-medium">You don't have an active clan. Go to your Profile, tap the <b>+</b> button near your name, and choose your clan emoji to get started!</p>
+                        <button
+                          onClick={() => navigateTo("profile")}
+                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-all"
+                        >
+                          Go to Profile
+                        </button>
+                      </div>
                     ) : filteredPosts.length === 0 ? (
                       <div className={`p-16 text-center border ${borderClass} rounded-2xl ${isDark ? 'bg-[#121118]/30' : 'bg-white'}`}>
-                        <p className="text-xs text-zinc-400 font-medium">The public wall is completely vacant. Begin by adding a post!</p>
+                        <p className="text-xs text-zinc-400 font-medium">
+                          {feedTab === "clan" 
+                            ? "No posts found from your clan. Be the first to publish a broadcast!" 
+                            : "The public wall is completely vacant. Begin by adding a post!"}
+                        </p>
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -1284,20 +1623,31 @@ export default function App() {
                   <div className="space-y-4">
                     {/* Header Banner Background Decorator */}
                     <div 
-                      className="relative h-32 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in"
+                      onClick={() => directBannerInputRef.current?.click()}
+                      className="relative h-32 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in cursor-pointer group"
                       style={{ 
                         backgroundImage: parsedMyBannerUrl 
                           ? `url(${parsedMyBannerUrl})` 
                           : 'linear-gradient(to bottom right, #1c133a, #100820, #140626)' 
                       }}
+                      title="Click banner to upload custom image (No links!)"
                     >
+                      {/* Upload overlay */}
+                      <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                        <span className="text-white text-xs font-bold font-sans flex items-center space-x-1 border border-white/20 bg-black/65 px-3 py-1.5 rounded-lg">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Upload Banner</span>
+                        </span>
+                      </div>
+
                       {/* Ambient circles */}
                       {!parsedMyBannerUrl && (
                         <>
-                          <div className="absolute -top-10 -left-10 w-32 h-32 bg-purple-650/10 rounded-full blur-2xl" />
-                          <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-purple-500/15 rounded-full blur-2xl" />
+                          <div className="absolute -top-10 -left-10 w-32 h-32 bg-purple-650/10 rounded-full blur-2xl pointer-events-none" />
+                          <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-purple-500/15 rounded-full blur-2xl pointer-events-none" />
                         </>
                       )}
+                      
                       <div className="absolute top-4 right-4 flex gap-1.5 z-10">
                         <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] uppercase tracking-wider font-mono font-black text-purple-355 border border-purple-500/20 shadow-lg flex items-center gap-1">
                           <span className="inline-block w-1.5 h-1.5 bg-green-400 rounded-full animate-ping" />
@@ -1305,6 +1655,22 @@ export default function App() {
                         </span>
                       </div>
                     </div>
+
+                    {/* Hidden direct file inputs */}
+                    <input 
+                      type="file" 
+                      ref={directAvatarInputRef}
+                      className="hidden" 
+                      accept="image/*"
+                      onChange={handleDirectAvatarUpload}
+                    />
+                    <input 
+                      type="file" 
+                      ref={directBannerInputRef}
+                      className="hidden" 
+                      accept="image/*"
+                      onChange={handleDirectBannerUpload}
+                    />
 
                     {/* Floating Profile Stats & Metadata Info Grid */}
                     <div className="relative -mt-10 px-4 sm:px-6 pb-6 pt-2 rounded-2xl bg-[#0c0a15]/95 backdrop-blur-xl shadow-xl space-y-4">
@@ -1314,7 +1680,9 @@ export default function App() {
                             <img 
                               src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username)}`}
                               alt={currentUser.username}
-                              className="w-20 h-20 rounded-2xl border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10"
+                              className="w-20 h-20 rounded-2xl border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10 cursor-pointer hover:opacity-85 transition-all"
+                              onClick={() => directAvatarInputRef.current?.click()}
+                              title="Click avatar to upload custom image (No links!)"
                             />
                             {((currentUser.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe"].includes(currentUser.username.toLowerCase())) ) && (
                               <div className="absolute -bottom-1.5 -right-1.5 bg-black rounded-full p-0.5 border border-purple-500/30 shadow-lg">
@@ -1323,11 +1691,50 @@ export default function App() {
                             )}
                           </div>
                           
-                          <div className="space-y-1 text-left">
+                          <div className="space-y-1 text-left relative">
                             <div className="flex items-center space-x-2">
                               <h3 className="font-extrabold text-[#fafafa] text-lg font-sans tracking-tight leading-none">
                                 {currentUser.display_name || currentUser.username}
                               </h3>
+
+                              {/* Clan Emoji Trigger popover picker */}
+                              <div className="relative inline-block ml-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                                  className="w-7 h-7 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-705 hover:bg-zinc-800 text-sm flex items-center justify-center cursor-pointer transition-all active:scale-95"
+                                  title={currentUser.clan_emoji ? "Change Clan Emoji" : "Add Clan Emoji (+)"}
+                                >
+                                  {currentUser.clan_emoji ? currentUser.clan_emoji : "+"}
+                                </button>
+
+                                {showEmojiPicker && (
+                                  <div className="absolute left-0 mt-2 p-3 bg-[#0d0d12] border border-zinc-800 rounded-xl shadow-2xl z-30 w-44 text-left space-y-2">
+                                    <p className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold font-mono">Select Clan Emoji</p>
+                                    <div className="grid grid-cols-4 gap-1.5">
+                                      {["🥷", "👾", "🗿", "🚀", "👑", "🐉", "🔥", "💀", "💻", "🧠", "⚔️", "🛡️", "🐈", "🦉", "☠️", "🛸"].map((emoji) => (
+                                        <button
+                                          key={emoji}
+                                          type="button"
+                                          onClick={() => handleUpdateClanEmoji(emoji)}
+                                          className="text-lg hover:bg-zinc-800 p-1 rounded transition-colors cursor-pointer"
+                                        >
+                                          {emoji}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    {currentUser.clan_emoji && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateClanEmoji(null)}
+                                        className="w-full text-center text-[9px] text-red-400 hover:bg-red-500/10 py-1 rounded transition-all font-bold uppercase font-mono cursor-pointer border border-transparent hover:border-red-500/10"
+                                      >
+                                        Leave Clan
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                             <p className="text-xs text-purple-400 font-mono">@{currentUser.username}</p>
                           </div>
@@ -1416,7 +1823,7 @@ export default function App() {
                     {/* Cupertino switch segments tab */}
                     <div className="flex bg-black/40 p-1 rounded-xl mb-6 border border-zinc-900">
                       <button 
-                        onClick={() => { setAuthTab("login"); setLoginError(null); }}
+                        onClick={() => { setAuthTab("login"); setLoginError(null); setAuthCaptchaPassed(false); }}
                         className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg cursor-pointer transition-all ${
                           authTab === "login" ? "bg-purple-600 text-white shadow-xs" : "text-zinc-500 hover:text-zinc-300"
                         }`}
@@ -1424,7 +1831,7 @@ export default function App() {
                         Sign In
                       </button>
                       <button 
-                        onClick={() => { setAuthTab("register"); setRegError(null); }}
+                        onClick={() => { setAuthTab("register"); setRegError(null); setAuthCaptchaPassed(false); }}
                         className={`flex-1 py-1.5 text-center text-xs font-bold rounded-lg cursor-pointer transition-all ${
                           authTab === "register" ? "bg-purple-600 text-white shadow-xs" : "text-zinc-500 hover:text-zinc-300"
                         }`}
@@ -1434,7 +1841,15 @@ export default function App() {
                     </div>
 
                     {authTab === "login" ? (
-                      <form onSubmit={handleLoginSubmit} className="space-y-4 text-left">
+                      <form 
+                        onSubmit={handleLoginSubmit} 
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !authCaptchaPassed) {
+                            e.preventDefault();
+                          }
+                        }}
+                        className="space-y-4 text-left"
+                      >
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Email Address</label>
                           <input 
@@ -1465,16 +1880,32 @@ export default function App() {
                           </div>
                         )}
 
+                        <div className="py-1">
+                          <SlidingCaptcha onSuccess={() => setAuthCaptchaPassed(true)} resetKey={authTab} />
+                        </div>
+
                         <button 
                           type="submit"
-                          disabled={loginLoading}
-                          className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/30 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                          disabled={loginLoading || !authCaptchaPassed}
+                          className={`w-full py-2.5 font-bold text-xs rounded-xl cursor-pointer transition-all ${
+                            !authCaptchaPassed
+                              ? "bg-zinc-800/80 text-zinc-550 border border-zinc-800 cursor-not-allowed"
+                              : "bg-purple-600 hover:bg-purple-700 text-white active:scale-98"
+                          }`}
                         >
                           {loginLoading ? "Authorizing..." : "Log In"}
                         </button>
                       </form>
                     ) : (
-                      <form onSubmit={handleRegisterSubmit} className="space-y-3.5 text-left">
+                      <form 
+                        onSubmit={handleRegisterSubmit} 
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !authCaptchaPassed) {
+                            e.preventDefault();
+                          }
+                        }}
+                        className="space-y-3.5 text-left"
+                      >
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Full Display Name</label>
                           <input 
@@ -1538,10 +1969,18 @@ export default function App() {
                           </div>
                         )}
 
+                        <div className="py-1">
+                          <SlidingCaptcha onSuccess={() => setAuthCaptchaPassed(true)} resetKey={authTab} />
+                        </div>
+
                         <button 
                           type="submit"
-                          disabled={regLoading}
-                          className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-650/30 text-white font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                          disabled={regLoading || !authCaptchaPassed}
+                          className={`w-full py-2.5 font-bold text-xs rounded-xl cursor-pointer transition-all ${
+                            !authCaptchaPassed
+                              ? "bg-zinc-800/80 text-zinc-550 border border-zinc-800 cursor-not-allowed"
+                              : "bg-purple-600 hover:bg-purple-700 text-white active:scale-98"
+                          }`}
                         >
                           {regLoading ? "Registering account..." : "Complete Signup"}
                         </button>
@@ -1919,6 +2358,373 @@ export default function App() {
               </motion.div>
             )}
 
+            {activeView === "admin" as any && (
+              <motion.div
+                key="admin"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6 text-slate-200"
+              >
+                {adminAuthPassword !== "RealMaveboStenaAdminModeration67" ? (
+                  <div id="admin-login-card" className={`p-6 md:p-8 rounded-2xl border ${borderClass} bg-[#121118]/80 space-y-6 text-center max-w-md mx-auto`}>
+                    <div className="mx-auto w-12 h-12 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-400">
+                      <Lock className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-extrabold tracking-wider uppercase text-purple-400">Security Gateway Access</h3>
+                      <p className="text-zinc-400 text-[10px] mt-1 uppercase tracking-wider">Restricted Moderator Area</p>
+                    </div>
+                    <p className={`text-xs ${textClass} leading-relaxed`}>
+                      Please enter the system password to access user activities monitoring, security logs, IP/device bans, and live moderation.
+                    </p>
+                    <form 
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (adminInputPass === "RealMaveboStenaAdminModeration67") {
+                          sessionStorage.setItem("admin_auth_pass", adminInputPass);
+                          setAdminAuthPassword(adminInputPass);
+                        } else {
+                          alert("Invalid admin credentials!");
+                        }
+                      }}
+                      className="space-y-4"
+                    >
+                      <input 
+                        id="admin-password-field"
+                        type="password"
+                        placeholder="Security Passphrase..."
+                        value={adminInputPass}
+                        onChange={(e) => setAdminInputPass(e.target.value)}
+                        className="w-full rounded-xl px-4 py-2 bg-zinc-900 border border-zinc-800 text-center text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 text-white"
+                      />
+                      <button 
+                        id="admin-login-submit"
+                        type="submit"
+                        className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 font-extrabold text-xs text-white rounded-xl uppercase tracking-wider cursor-pointer"
+                      >
+                        Unlock System Console
+                      </button>
+                    </form>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Console Header */}
+                    <div id="admin-header-panel" className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/80 flex flex-col sm:flex-row justify-between sm:items-center gap-4`}>
+                      <div className="flex items-center space-x-3">
+                        <div className="p-2.5 rounded-xl bg-green-500/10 text-green-400">
+                          <Check className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h2 className="text-base font-black tracking-tight text-white flex items-center gap-2">
+                            <span>Admin Security Console</span>
+                            <span className="px-2 py-0.5 rounded-md bg-green-500/10 border border-green-500/20 text-green-400 text-[8px] tracking-wider uppercase font-extrabold font-mono animate-pulse">LIVE MONITOR</span>
+                          </h2>
+                          <p className="text-[10px] text-zinc-500 font-mono">Real-time telemetry, session heartbeats, and threat shields.</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        <button 
+                          id="admin-refresh-stats-btn"
+                          onClick={fetchAdminStats}
+                          disabled={loadingAdminStats}
+                          className="px-3.5 py-2 rounded-xl text-[10px] font-mono tracking-wider uppercase bg-purple-500/15 hover:bg-purple-500/25 text-purple-400 border border-purple-500/20 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <RefreshCw className={`w-3 h-3 ${loadingAdminStats ? 'animate-spin' : ''}`} />
+                          <span>Refresh Telemetry</span>
+                        </button>
+                        <button 
+                          id="admin-logout-btn"
+                          onClick={() => {
+                            sessionStorage.removeItem("admin_auth_pass");
+                            setAdminAuthPassword("");
+                          }}
+                          className="px-3.5 py-2 rounded-xl text-[10px] uppercase font-bold bg-transparent hover:bg-red-500/10 text-red-400 border border-red-500/20 cursor-pointer"
+                        >
+                          Lock Out
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Navigation Tabs */}
+                    <div id="admin-tabs" className="flex rounded-xl p-1 bg-[#121118]/60 border border-zinc-800/60 font-sans shadow-inner">
+                      <button 
+                        onClick={() => setAdminActiveTab("stats")}
+                        className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center justify-center space-x-1.5 transition-all ${
+                          adminActiveTab === "stats" 
+                            ? "bg-purple-600 text-white shadow-xs" 
+                            : "text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Sessions & Stats</span>
+                      </button>
+                      <button 
+                        onClick={() => setAdminActiveTab("security")}
+                        className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center justify-center space-x-1.5 transition-all ${
+                          adminActiveTab === "security" 
+                            ? "bg-purple-600 text-white shadow-xs" 
+                            : "text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        <Shield className="w-3.5 h-3.5" />
+                        <span>Security Intelligence</span>
+                      </button>
+                      <button 
+                        onClick={() => setAdminActiveTab("moderation")}
+                        className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center justify-center space-x-1.5 transition-all ${
+                          adminActiveTab === "moderation" 
+                            ? "bg-purple-600 text-white shadow-xs" 
+                            : "text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Moderation Feed</span>
+                      </button>
+                    </div>
+
+                    {/* Tab Contents */}
+                    <div className="space-y-4">
+                      {adminStatsError && (
+                        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium leading-relaxed">
+                          {adminStatsError}
+                        </div>
+                      )}
+
+                      {/* STATS TAB */}
+                      {adminActiveTab === "stats" && adminStats && (
+                        <div className="space-y-5">
+                          {/* Top row widget display */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className={`p-4 rounded-2xl border ${borderClass} bg-[#121118]/45 text-center`}>
+                              <p className="text-[10px] uppercase tracking-widest text-purple-400 font-mono font-bold">Total Registered Users</p>
+                              <p className="text-3xl font-black text-white mt-1">{adminStats.registerCount}</p>
+                              <p className="text-[9px] text-zinc-500 mt-1 uppercase font-mono font-semibold">Enrolled in database</p>
+                            </div>
+                            <div className={`p-4 rounded-2xl border ${borderClass} bg-[#121118]/45 text-center`}>
+                              <p className="text-[10px] uppercase tracking-widest text-green-400 font-mono font-bold">Online Users (Active 30s)</p>
+                              <p className="text-3xl font-black text-green-400 mt-1">{adminStats.onlineCount}</p>
+                              <p className="text-[9px] text-zinc-500 mt-1 uppercase font-mono font-semibold">Providing live heartbeats</p>
+                            </div>
+                          </div>
+
+                          {/* Sessions listing table */}
+                          <div className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/45 space-y-4`}>
+                            <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400 font-mono">Online User telemetry details</h3>
+                            {adminStats.onlineSessions && adminStats.onlineSessions.length > 0 ? (
+                              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                                {adminStats.onlineSessions.map((ses: any, sIdx: number) => (
+                                  <div key={sIdx} className="p-3.5 rounded-xl border border-zinc-800/60 bg-black/35 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                                    <div className="flex items-center space-x-3 min-w-0">
+                                      <img 
+                                        src={ses.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(ses.username)}`}
+                                        className="w-10 h-10 rounded-full object-cover border border-purple-500/20"
+                                      />
+                                      <div className="min-w-0">
+                                        <p className="font-bold text-xs text-white truncate">{ses.displayName || ses.username}</p>
+                                        <p className="text-[10px] font-mono text-purple-400">@{ses.username}</p>
+                                      </div>
+                                    </div>
+
+                                    {/* Telemetry info */}
+                                    <div className="space-y-1 text-left sm:text-right">
+                                      <div className="flex flex-wrap gap-1.5 justify-start sm:justify-end">
+                                        <span className="px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-400 font-mono text-[9px] font-bold">
+                                          IP: {ses.ip || "Unknown"}
+                                        </span>
+                                        {ses.vpnInfo?.isVpn && (
+                                          <span className="px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono text-[9px] font-bold">
+                                            VPN DETECTED
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[9px] text-zinc-500 font-mono truncate max-w-[280px]">
+                                        Device: {ses.userAgent || "Unknown Standard Device"}
+                                      </p>
+                                    </div>
+
+                                    {/* Block operations */}
+                                    <div className="shrink-0">
+                                      <button 
+                                        onClick={() => handleBlockAction({ ip: ses.ip, userAgent: ses.userAgent })}
+                                        className="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-750 text-white font-mono text-[9px] font-bold uppercase tracking-wider cursor-pointer"
+                                      >
+                                        Block Device / IP
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-center py-6 text-zinc-550 text-[10px] uppercase font-mono tracking-wider font-semibold">No active telemetry sessions logged in the last 30s.</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SECURITY TAB */}
+                      {adminActiveTab === "security" && adminStats && (
+                        <div className="space-y-4">
+                          {/* Attack Logs list */}
+                          <div className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/45 space-y-4`}>
+                            <h3 className="text-xs font-bold uppercase tracking-widest text-red-400 font-mono flex items-center gap-1.5">
+                              <span>Security Alerts / Suspicious Logs</span>
+                              <span className="px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-red-500 text-[9px] font-mono animate-pulse font-extrabold">{adminStats.suspiciousActivities?.length || 0} SEVERE SEEN</span>
+                            </h3>
+                            {adminStats.suspiciousActivities && adminStats.suspiciousActivities.length > 0 ? (
+                              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                                {adminStats.suspiciousActivities.map((log: any, lIdx: number) => (
+                                  <div key={lIdx} className="p-3.5 rounded-xl border border-red-500/10 bg-red-500/5 space-y-3 text-left">
+                                    <div className="flex items-center justify-between gap-3 text-[10px] font-mono">
+                                      <span className="font-bold text-red-400 uppercase tracking-wider">{log.type} Attack Detected</span>
+                                      <span className="text-zinc-500">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                                    </div>
+                                    <div className="p-2.5 rounded bg-black/45 border border-zinc-800 text-[10px] font-mono text-amber-400 whitespace-pre-wrap break-all">
+                                      {log.detail}
+                                    </div>
+                                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 text-[10px]">
+                                      <div className="text-zinc-400 font-mono">
+                                        IP: <span className="text-zinc-200">{log.ip || "None"}</span> • Device: <span className="text-zinc-200">{log.userAgent || "None"}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        <button 
+                                          onClick={() => handleBlockAction({ ip: log.ip, userAgent: log.userAgent })}
+                                          className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white border border-red-500/20 font-bold uppercase tracking-wider text-[9px] rounded-lg cursor-pointer"
+                                        >
+                                          Ban Intruder IP/Device
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-center py-6 text-zinc-550 text-[10px] uppercase font-mono tracking-wider font-semibold">No malicious activity logged recently. Shield is green.</p>
+                            )}
+                          </div>
+
+                          {/* Blocked rule registries */}
+                          <div className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/45 space-y-4`}>
+                            <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400 font-mono">Standard Blocklist Shields</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Blocked IPs */}
+                              <div className="space-y-2">
+                                <h4 className="text-[10px] font-bold uppercase tracking-wider text-purple-400 font-mono">Banned IP Rules</h4>
+                                <div className="p-3.5 rounded-xl bg-black/20 border border-zinc-800/80 max-h-48 overflow-y-auto space-y-2">
+                                  {adminStats.blockedIps && adminStats.blockedIps.length > 0 ? (
+                                    adminStats.blockedIps.map((ip: string, idx: number) => (
+                                      <div key={idx} className="flex items-center justify-between gap-4 text-xs font-mono">
+                                        <span className="text-zinc-350">{ip}</span>
+                                        <button 
+                                          onClick={() => handleUnblockAction({ ip })}
+                                          className="text-purple-400 hover:text-purple-305 uppercase font-bold text-[8px]"
+                                        >
+                                          Lift ban
+                                        </button>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <p className="text-zinc-650 text-[9px] uppercase tracking-wider py-1 font-mono text-center">0 active IP rules</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Blocked User-Agents */}
+                              <div className="space-y-2">
+                                <h4 className="text-[10px] font-bold uppercase tracking-wider text-purple-400 font-mono">Banned Device Rules (UA)</h4>
+                                <div className="p-3.5 rounded-xl bg-black/20 border border-zinc-800/80 max-h-48 overflow-y-auto space-y-2">
+                                  {adminStats.blockedUserAgents && adminStats.blockedUserAgents.length > 0 ? (
+                                    adminStats.blockedUserAgents.map((ua: string, idx: number) => (
+                                      <div key={idx} className="flex items-start justify-between gap-4 text-xs font-mono">
+                                        <span className="text-zinc-350 truncate max-w-[140px]" title={ua}>{ua}</span>
+                                        <button 
+                                          onClick={() => handleUnblockAction({ userAgent: ua })}
+                                          className="text-purple-400 hover:text-purple-305 uppercase font-bold text-[8px] shrink-0"
+                                        >
+                                          Lift ban
+                                        </button>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <p className="text-zinc-650 text-[9px] uppercase tracking-wider py-1 font-mono text-center">0 active Device rules</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* MODERATION TAB */}
+                      {adminActiveTab === "moderation" && (
+                        <div className="space-y-4">
+                          <div className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/45 space-y-4`}>
+                            <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400 font-mono text-left">Thread Moderation</h3>
+                            <p className="text-[10px] text-zinc-500 leading-relaxed text-left">Deletions take place immediately on the database in real-time bypassing user restrictions.</p>
+                            
+                            <div className="space-y-4 max-h-110 overflow-y-auto pr-1">
+                              {posts && posts.length > 0 ? (
+                                posts.map((pst) => (
+                                  <div key={pst.id} className="p-4 rounded-xl border border-zinc-800 bg-black/30 text-left space-y-3">
+                                    <div className="flex justify-between items-start gap-4">
+                                      <div className="flex items-center space-x-2.5">
+                                        <img 
+                                          src={pst.profiles?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(pst.profiles?.username || 'G')}`}
+                                          className="w-8 h-8 rounded-full border border-purple-500/10"
+                                        />
+                                        <div>
+                                          <p className="font-bold text-xs text-white">{pst.profiles?.display_name || pst.profiles?.username || "Guest"}</p>
+                                          <p className="text-[10px] font-mono text-purple-400">@{pst.profiles?.username || "guest"}</p>
+                                        </div>
+                                      </div>
+                                      <button 
+                                        onClick={() => adminDeletePost(pst.id)}
+                                        className="px-2.5 py-1 text-[9px] font-mono font-bold text-red-400 border border-red-500/20 hover:bg-red-500/10 rounded uppercase"
+                                      >
+                                        Delete Post
+                                      </button>
+                                    </div>
+
+                                    {/* Post context body */}
+                                    <p className="text-xs text-zinc-350 bg-black/15 p-2 rounded border border-zinc-850 break-words font-sans">{pst.content}</p>
+
+                                    {/* Associated Comments */}
+                                    {pst.comments && pst.comments.length > 0 && (
+                                      <div className="pl-4 border-l border-zinc-800 space-y-2">
+                                        <p className="text-[9px] font-bold text-zinc-550 uppercase tracking-widest font-mono">Replies Log ({pst.comments.length})</p>
+                                        {pst.comments.map((cm: any) => (
+                                          <div key={cm.id} className="p-2.5 rounded bg-black/20 border border-zinc-900/60 flex justify-between items-center gap-4">
+                                            <div className="min-w-0 pr-1">
+                                              <p className="text-[10px] font-bold text-zinc-300">
+                                                {cm.profiles?.display_name || cm.profiles?.username || "Guest reviewer"} <span className="text-purple-400 text-[8px]">@{cm.profiles?.username || "anonymous"}</span>
+                                              </p>
+                                              <p className="text-[11px] text-zinc-450 truncate break-words mt-0.5">{cm.content}</p>
+                                            </div>
+                                            <button 
+                                              onClick={() => adminDeleteComment(cm.id)}
+                                              className="text-[8px] font-bold uppercase text-red-400 hover:text-red-300 bg-[#351010]/35 hover:bg-red-950/20 px-2 py-0.5 rounded border border-red-900/30 shrink-0"
+                                            >
+                                              Delete
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-center py-6 text-zinc-550 text-[10px] uppercase font-mono tracking-wider font-semibold">No live threads are currently broadcast on the wall.</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
           </AnimatePresence>
         </div>
 
@@ -1964,6 +2770,20 @@ export default function App() {
       {/* About Modal Dialog */}
       <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
 
+      {/* Profile Configurations settings Modal */}
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+        currentUser={currentUser}
+        onProfileUpdated={(updatedUser) => {
+          setCurrentUser(updatedUser);
+          fetchPosts(); // Refreshes timelines with correct profile details
+          if (updatedUser?.username) {
+            fetchUserProfileData(updatedUser.username);
+          }
+        }}
+      />
+
       {/* Compose Publication Modal pop-over */}
       <CreatePostModal 
         isOpen={isPostModalOpen}
@@ -1976,6 +2796,8 @@ export default function App() {
         repostOfPost={repostOfPost}
         onClearRepost={() => setRepostOfPost(null)}
       />
+
+
 
     </div>
   );

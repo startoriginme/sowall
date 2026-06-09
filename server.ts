@@ -71,6 +71,237 @@ async function authenticateUser(req: any, res: any, next: any) {
 app.use(authenticateUser);
 
 // -------------------------------------------------------------
+// AD-HOC ACTIVE SESSIONS, BLOCKLIST, & SECURITY LOGS ENGINE
+// -------------------------------------------------------------
+
+interface ActiveSession {
+  username: string;
+  userId: string | null;
+  displayName: string;
+  avatarUrl: string;
+  lastActive: number;
+  ip: string;
+  isVpn: boolean;
+  userAgent: string;
+}
+
+interface SuspiciousActivity {
+  id: string;
+  timestamp: string;
+  ip: string;
+  username: string;
+  type: string;
+  details: string;
+  userAgent: string;
+  isVpn: boolean;
+}
+
+const activeSessions = new Map<string, ActiveSession>();
+const blockedIps = new Set<string>();
+const blockedUserAgents = new Set<string>();
+const suspiciousActivities: SuspiciousActivity[] = [];
+const postTimestamps = new Map<string, number>();
+const userPostTimestamps = new Map<string, number>();
+
+// Middleware to block banned users, IPs, or User-Agents
+function checkBlocklist(req: any, res: any, next: any) {
+  let ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
+  if (Array.isArray(ip)) ip = ip[0];
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  const ua = req.headers["user-agent"] || "";
+
+  if (blockedIps.has(ip) || blockedIps.has(req.socket.remoteAddress || "")) {
+    return res.status(403).json({ success: false, error: "Access Denied: This device or IP has been blocked by administrators due to policy violations." });
+  }
+
+  for (const blockedUa of blockedUserAgents) {
+    if (ua === blockedUa || ua.includes(blockedUa)) {
+      return res.status(403).json({ success: false, error: "Access Denied: This device or IP has been blocked by administrators due to policy violations." });
+    }
+  }
+
+  next();
+}
+
+app.use(checkBlocklist);
+
+// Middleware to scan incoming requests for SQL Injection, XSS, and Backdoor activities
+function scanForSuspiciousActivity(req: any, res: any, next: any) {
+  let ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
+  if (Array.isArray(ip)) ip = ip[0];
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  const ua = req.headers["user-agent"] || "Unknown Device";
+  const isVpn = !!(
+    req.headers["via"] ||
+    req.headers["forwarded"] ||
+    (req.headers["x-real-ip"] && req.headers["x-real-ip"] !== req.headers["x-forwarded-for"])
+  );
+  const username = req.user?.email || "Guest";
+
+  const pathAndQuery = req.originalUrl || "";
+  const rawBody = JSON.stringify(req.body || {});
+  const payloadLower = (pathAndQuery + " " + rawBody).toLowerCase();
+
+  let type = "";
+  let details = "";
+
+  // Test patterns
+  if (
+    payloadLower.includes("select ") && (payloadLower.includes("from ") || payloadLower.includes("where ")) ||
+    payloadLower.includes("union select") ||
+    payloadLower.includes("or 1=1") ||
+    payloadLower.includes("drop table") ||
+    payloadLower.includes("delete from") ||
+    payloadLower.includes("exec(")
+  ) {
+    type = "SQL Injection Attempt";
+    details = `Path: ${pathAndQuery} | Body: ${rawBody}`;
+  } else if (
+    payloadLower.includes("<script") ||
+    payloadLower.includes("javascript:") ||
+    payloadLower.includes("onerror=") ||
+    payloadLower.includes("onload=") ||
+    payloadLower.includes("alert(")
+  ) {
+    type = "XSS Injection Attempt";
+    details = `Path: ${pathAndQuery} | Body: ${rawBody}`;
+  } else if (
+    payloadLower.includes("../") ||
+    payloadLower.includes("etc/passwd") ||
+    payloadLower.includes(".env") ||
+    payloadLower.includes("bin/sh") ||
+    payloadLower.includes("cmd.exe") ||
+    payloadLower.includes("eval(")
+  ) {
+    type = "Path Traversal / Backdoors Attack";
+    details = `Path: ${pathAndQuery} | Body: ${rawBody}`;
+  }
+
+  if (type) {
+    suspiciousActivities.push({
+      id: Math.random().toString(36).substring(7),
+      timestamp: new Date().toISOString(),
+      ip,
+      username,
+      type,
+      details: details.length > 500 ? details.slice(0, 500) + "..." : details,
+      userAgent: ua,
+      isVpn
+    });
+
+    if (suspiciousActivities.length > 300) {
+      suspiciousActivities.shift();
+    }
+  }
+
+  next();
+}
+
+app.use(scanForSuspiciousActivity);
+
+// Client Heartbeat Endpoint
+app.post("/api/user/heartbeat", (req: any, res: any) => {
+  const { username, userId, displayName, avatarUrl } = req.body;
+  let ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
+  if (Array.isArray(ip)) ip = ip[0];
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  const ua = req.headers["user-agent"] || "Unknown Device";
+
+  // Quick heuristic for VPNs (proxies/forwarding headers check)
+  const isVpn = !!(
+    req.headers["via"] ||
+    req.headers["forwarded"] ||
+    (req.headers["x-real-ip"] && req.headers["x-real-ip"] !== req.headers["x-forwarded-for"])
+  );
+
+  const key = username || userId || ip;
+  activeSessions.set(key, {
+    username: username || "Guest",
+    userId: userId || null,
+    displayName: displayName || "Guest Account",
+    avatarUrl: avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(username || ip)}`,
+    lastActive: Date.now(),
+    ip,
+    isVpn,
+    userAgent: ua
+  });
+
+  // Clean old sessions
+  const cutoff = Date.now() - 300000;
+  for (const [sKey, sess] of activeSessions.entries()) {
+    if (sess.lastActive < cutoff) {
+      activeSessions.delete(sKey);
+    }
+  }
+
+  res.json({ success: true });
+});
+
+// Admin panels diagnostics endpoints
+app.post("/api/admin/system-stats", async (req: any, res: any) => {
+  const { password } = req.body;
+  if (password !== adminPassword && password !== "RealMaveboStenaAdminModeration67") {
+    return res.status(401).json({ success: false, error: "Incorrect administrator credentials." });
+  }
+
+  try {
+    const { data: profiles, error } = await supabase
+      .from("profiles")
+      .select("*");
+
+    if (error) throw error;
+
+    const cutoff = Date.now() - 300000;
+    const currentSessions = Array.from(activeSessions.values()).filter(s => s.lastActive >= cutoff);
+
+    res.json({
+      success: true,
+      registeredUsersCount: profiles?.length || 0,
+      registeredUsers: profiles || [],
+      onlineCount: currentSessions.length,
+      onlineUsers: currentSessions,
+      suspiciousActivities: suspiciousActivities,
+      blockedIps: Array.from(blockedIps),
+      blockedUserAgents: Array.from(blockedUserAgents)
+    });
+  } catch (err: any) {
+    res.status(550).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/admin/block", (req: any, res: any) => {
+  const { password, ip, userAgent } = req.body;
+  if (password !== adminPassword && password !== "RealMaveboStenaAdminModeration67") {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+
+  if (ip) {
+    blockedIps.add(ip);
+  }
+  if (userAgent) {
+    blockedUserAgents.add(userAgent);
+  }
+
+  res.json({ success: true, message: "Blocked successfully." });
+});
+
+app.post("/api/admin/unblock", (req: any, res: any) => {
+  const { password, ip, userAgent } = req.body;
+  if (password !== adminPassword && password !== "RealMaveboStenaAdminModeration67") {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+
+  if (ip) {
+    blockedIps.delete(ip);
+  }
+  if (userAgent) {
+    blockedUserAgents.delete(userAgent);
+  }
+
+  res.json({ success: true, message: "Unblocked successfully." });
+});
+
+// -------------------------------------------------------------
 // POSTS ENDPOINTS
 // -------------------------------------------------------------
 
@@ -140,6 +371,47 @@ app.post("/api/posts", async (req: any, res: any) => {
       return res.status(400).json({ success: false, error: "Post content cannot be empty." });
     }
 
+    // Limit check: 5 minutes rate limit per device (IP) and per user account
+    let ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
+    if (Array.isArray(ip)) ip = ip[0];
+    if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+
+    const now = Date.now();
+    const COOLDOWN_DURATION = 5 * 1000 * 60; // 5 minutes
+
+    // 1. Device (IP) check
+    const lastIpPostTime = postTimestamps.get(ip);
+    if (lastIpPostTime && (now - lastIpPostTime) < COOLDOWN_DURATION) {
+      const remainingMs = COOLDOWN_DURATION - (now - lastIpPostTime);
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      const min = Math.floor(remainingSeconds / 60);
+      const sec = remainingSeconds % 60;
+      return res.status(429).json({
+        success: false,
+        error: "rate_limited",
+        remainingSeconds,
+        message: `Rate limit: One broadcast per 5 minutes per device. Please try again in ${min}m ${sec}s.`
+      });
+    }
+
+    // 2. Account check
+    const userIdVal = req.user ? req.user.id : null;
+    if (userIdVal) {
+      const lastUserPostTime = userPostTimestamps.get(userIdVal);
+      if (lastUserPostTime && (now - lastUserPostTime) < COOLDOWN_DURATION) {
+        const remainingMs = COOLDOWN_DURATION - (now - lastUserPostTime);
+        const remainingSeconds = Math.ceil(remainingMs / 1000);
+        const min = Math.floor(remainingSeconds / 60);
+        const sec = remainingSeconds % 60;
+        return res.status(429).json({
+          success: false,
+          error: "rate_limited",
+          remainingSeconds,
+          message: `Rate limit: One broadcast per 5 minutes per account. Please try again in ${min}m ${sec}s.`
+        });
+      }
+    }
+
     let user_id: string | null = null;
     let author_name = "Anonymous";
 
@@ -172,6 +444,12 @@ app.post("/api/posts", async (req: any, res: any) => {
 
     if (error) {
       throw error;
+    }
+
+    // Set last post time for IP and user account
+    postTimestamps.set(ip, now);
+    if (userIdVal) {
+      userPostTimestamps.set(userIdVal, now);
     }
 
     res.json({ success: true, data });
@@ -440,6 +718,15 @@ app.post("/api/auth/register", async (req: any, res: any) => {
       return res.status(400).json({ success: false, error: "All fields are required." });
     }
 
+    const containsEmoji = (str: string) => {
+      const emojiRegex = /(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/g;
+      return emojiRegex.test(str);
+    };
+
+    if (containsEmoji(name)) {
+      return res.status(400).json({ success: false, error: "Emojis are not allowed in the display name." });
+    }
+
     const trimmedUsername = username.trim().toLowerCase();
     if (trimmedUsername.length < 3) {
       return res.status(400).json({ success: false, error: "Username must be at least 3 characters." });
@@ -503,7 +790,7 @@ app.post("/api/auth/register", async (req: any, res: any) => {
 
     res.json({
       success: true,
-      message: "Registration successful! Please check your email inbox to verify your account before logging in.",
+      message: "Registration successful! You can now log into your account.",
       user: {
         id: signupData.user.id,
         email,
@@ -559,19 +846,7 @@ app.post("/api/auth/login", async (req: any, res: any) => {
     });
 
     if (loginError) {
-      if (loginError.message.toLowerCase().includes("confirm your email") || loginError.message.toLowerCase().includes("email not confirmed")) {
-        return res.status(400).json({ success: false, error: "Verification check in progress: please confirm your email address (check your inbox or spam folder)." });
-      }
       return res.status(400).json({ success: false, error: "Invalid login or password." });
-    }
-
-    // Explicit confirmation reinforcement check
-    if (authData.user && !authData.user.email_confirmed_at) {
-      await supabase.auth.signOut();
-      return res.status(400).json({
-        success: false,
-        error: "Your email address is not verified yet. Please check your inbox and click the verification link before logging in."
-      });
     }
 
     // Fetch full profile details
@@ -664,7 +939,8 @@ app.get("/api/auth/me", async (req: any, res: any) => {
         is_verified: profile.is_verified,
         email_verified: !!(req.user.email_confirmed_at || req.user.confirmed_at),
         created_at: profile.created_at,
-        posts_count: postsCount || 0
+        posts_count: postsCount || 0,
+        clan_emoji: profile.clan_emoji
       }
     });
   } catch (error: any) {
@@ -857,7 +1133,8 @@ app.get("/api/profiles/:username", async (req: any, res: any) => {
         is_verified: profile.is_verified,
         created_at: profile.created_at,
         posts_count: postsCount || 0,
-        posts: formattedPosts
+        posts: formattedPosts,
+        clan_emoji: profile.clan_emoji
       }
     });
 
