@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { 
   HelpCircle, User, Shield, ShieldCheck, Search, RefreshCw, 
   Plus, FileText, Users, BadgeCheck, Settings, LogOut, 
-  ChevronLeft, Heart, Repeat, Check, Moon, Sun, Upload, Mail, Lock, BookOpen
+  ChevronLeft, Heart, Repeat, Check, Moon, Sun, Upload, Mail, Lock, BookOpen, X, Sparkles
 } from "lucide-react";
 import { Post, UserSessionData } from "./types";
 import AboutModal from "./components/AboutModal";
@@ -18,6 +18,17 @@ import SlidingCaptcha from "./components/SlidingCaptcha";
 import SettingsModal from "./components/SettingsModal";
 import GhostLoader from "./components/GhostLoader";
 import { supabase } from "./lib/supabase";
+
+// Список всех доступных кланов
+const CLAN_EMOJIS = [
+  "🐉", "🐲", "🦁", "🦅", "🐺", "🐻", "🗡️", "🛡️", "⚔️", "🏰", "🔮", "🧙", 
+  "👑", "💎", "🌋", "🤖", "👾", "💻", "⌨️", "🖥️", "📡", "🛸", "🔫", "🎮", 
+  "🧬", "⚡", "🔋", "🌐", "💊", "🎛️", "🎨", "🖌️", "✏️", "🎭", "🎬", "🎧", 
+  "🎵", "🎸", "🥁", "📸", "🎞️", "🖼️", "✂️", "🧵", "🪡", "🏆", "🥇", "⚽", 
+  "🏀", "🎾", "🏈", "⚡", "💪", "🥊", "🚴", "🏋️", "🧗", "🏊", "⛷️", "🏅", 
+  "🌿", "🍃", "🌸", "🌻", "🍄", "🪶", "🐾", "🕊️", "🐝", "🦋", "🌙", "✨", 
+  "⭐", "☕", "🍜"
+];
 
 export default function App() {
   const [activeView, setActiveView] = useState<"feed" | "profile" | "user-profile" | "settings" | "post-detail" | "admin">("feed");
@@ -48,8 +59,10 @@ export default function App() {
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [feedTab, setFeedTab] = useState<"global" | "clan">("global");
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [repostOfPost, setRepostOfPost] = useState<Post | null>(null);
+  
+  // Clan modal state
+  const [showClanModal, setShowClanModal] = useState(false);
 
   const directAvatarInputRef = useRef<HTMLInputElement>(null);
   const directBannerInputRef = useRef<HTMLInputElement>(null);
@@ -79,7 +92,6 @@ export default function App() {
       
       if (err) throw err;
       
-      // Build a mock list of online sessions based on registered profiles
       const list = profiles || [];
       const mockSessions = list.slice(0, 3).map((p: any, idx: number) => ({
         username: p.username,
@@ -156,25 +168,18 @@ export default function App() {
     }
   };
 
-  // Heartbeat trigger hook
   useEffect(() => {
     if (!currentUser) return;
-    // Bypassing client-to-server heartbeat since there are no custom api endpoints
   }, [currentUser]);
-
-  // Clean Apple App routing states replacing the modal:
-  // Already declared at the top of the file.
 
   const [activePost, setActivePost] = useState<Post | null>(null);
   const [loadingActivePost, setLoadingActivePost] = useState(false);
   const [activePostError, setActivePostError] = useState<string | null>(null);
 
-  // Detailed profile page data for standard public lookups
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profilePageData, setProfilePageData] = useState<any | null>(null);
 
-  // Forms state inside Profile Auth panel
   const [authTab, setAuthTab] = useState<"login" | "register">("login");
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -189,7 +194,6 @@ export default function App() {
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
 
-  // Settings modification field states
   const [editName, setEditName] = useState("");
   const [editUsername, setEditUsername] = useState("");
   const [editBio, setEditBio] = useState("");
@@ -200,7 +204,6 @@ export default function App() {
   const [editError, setEditError] = useState<string | null>(null);
   const [editSuccess, setEditSuccess] = useState(false);
 
-  // Synchronize CSS body attributes to dark purple
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("dark");
@@ -208,7 +211,6 @@ export default function App() {
     root.style.color = "#f1eefc";
   }, []);
 
-  // Synchronize settings form state details with currentUser log values
   useEffect(() => {
     if (currentUser) {
       setEditName(currentUser.display_name || "");
@@ -240,7 +242,6 @@ export default function App() {
     setIsPostModalOpen(true);
   };
 
-  // State-based standard router synchronization (saves history & keeps URL intact)
   const navigateTo = (view: typeof activeView, params?: { username?: string; postId?: string }) => {
     if (view === "settings") {
       setIsSettingsOpen(true);
@@ -274,7 +275,6 @@ export default function App() {
     }
   };
 
-  // Fetch a single post directly from the database
   const fetchSinglePost = async (id: string) => {
     try {
       setLoadingActivePost(true);
@@ -292,7 +292,6 @@ export default function App() {
         return;
       }
 
-      // Fetch author profile
       const { data: authorProfile, error: authorError } = await supabase
         .from("profiles")
         .select("*")
@@ -301,7 +300,6 @@ export default function App() {
 
       if (authorError) console.error("Error fetching author:", authorError);
 
-      // Comments list
       const { data: comments, error: commentsError } = await supabase
         .from("comments")
         .select("*")
@@ -310,7 +308,6 @@ export default function App() {
 
       if (commentsError) console.error("Error fetching comments:", commentsError);
 
-      // Fetch comment author profiles
       const commentAuthorIds = comments?.map(c => c.user_id).filter(Boolean) || [];
       const { data: commentProfiles, error: commentProfilesError } = await supabase
         .from("profiles")
@@ -319,7 +316,6 @@ export default function App() {
 
       if (commentProfilesError) console.error("Error fetching comment profiles:", commentProfilesError);
 
-      // Fetch likes list
       const { data: likes, error: likesError } = await supabase
         .from("post_likes")
         .select("*")
@@ -348,13 +344,11 @@ export default function App() {
     }
   };
 
-  // Fetch standard public profile page content dynamically with case insensitivity
   const fetchUserProfileData = async (username: string) => {
     try {
       setProfileLoading(true);
       setProfileError(null);
 
-      // Cache lookup for ultra responsive loading speed
       const cacheKey = `cached_profile_${username.toLowerCase()}`;
       try {
         const cached = localStorage.getItem(cacheKey);
@@ -364,7 +358,6 @@ export default function App() {
         }
       } catch (e) {}
 
-      // Step 1: case-insensitive query to prevent issue with lowercase-uppercase mismatches (supports @dil_doe)
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("*")
@@ -378,7 +371,6 @@ export default function App() {
         return;
       }
 
-      // Bio text extraction
       let cleanBio = profile.bio || "";
       let bannerUrl = "";
       if (cleanBio.trim().startsWith("{")) {
@@ -424,13 +416,11 @@ export default function App() {
     }
   };
 
-  // Fetch all posts directly from the database
   const fetchPosts = async () => {
     try {
       setLoadingPosts(true);
       setPostsError(null);
       
-      // Loading states optimization via cache lookup
       try {
         const cached = localStorage.getItem("cache_posts");
         if (cached && posts.length === 0) {
@@ -478,7 +468,6 @@ export default function App() {
     }
   };
 
-  // Set up unified safe auth session handling
   useEffect(() => {
     let authSubscription: any = null;
     let isMounted = true;
@@ -532,7 +521,6 @@ export default function App() {
         }
       }
 
-      // Configure onAuthStateChange for future transitions (login, logout, etc.)
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (!isMounted) return;
         
@@ -582,7 +570,6 @@ export default function App() {
     };
   }, []);
 
-  // Check URL params on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const modParam = params.get("admin") || params.get("moderation");
@@ -630,7 +617,6 @@ export default function App() {
     setActivePost(null);
   };
 
-  // Synchronize routing details
   useEffect(() => {
     handleURLRouting();
     const onPopstate = () => {
@@ -642,14 +628,12 @@ export default function App() {
     };
   }, [currentUser]);
 
-  // Fetch personal profile posts whenever user switches to profile view or current user updates
   useEffect(() => {
     if (activeView === "profile" && currentUser?.username) {
       fetchUserProfileData(currentUser.username);
     }
   }, [activeView, currentUser?.username]);
 
-  // Dynamic search debounce for users
   useEffect(() => {
     if (searchMode === "users" && searchQuery.trim().length > 0) {
       const delayDebounce = setTimeout(async () => {
@@ -680,7 +664,6 @@ export default function App() {
     }
   }, [searchQuery, searchMode]);
 
-  // Handle Login submission
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!authCaptchaPassed) {
@@ -749,7 +732,6 @@ export default function App() {
     }
   };
 
-  // Handle Registration submission
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!authCaptchaPassed) {
@@ -783,7 +765,6 @@ export default function App() {
       setRegError(null);
       setRegSuccess(null);
 
-      // 1. Check if username is taken in profiles
       const { data: existingProfile } = await supabase
         .from("profiles")
         .select("id")
@@ -794,7 +775,6 @@ export default function App() {
         throw new Error("This username is already taken.");
       }
 
-      // 2. Sign up via Supabase Standard signUp to trigger confirmation email system
       const { data: signupData, error: signupError } = await supabase.auth.signUp({
         email: regEmail.trim(),
         password: regPassword,
@@ -805,7 +785,6 @@ export default function App() {
         throw new Error("Failed to create user account.");
       }
 
-      // 3. Create the profile
       const bioData = JSON.stringify({
         text: "",
         discord: "",
@@ -862,13 +841,11 @@ export default function App() {
 
       if (error) throw error;
 
-      // Update local state reactive
       setCurrentUser({
         ...currentUser,
         clan_emoji: emoji
       } as any);
 
-      // Sync active profilePageData
       if (profilePageData && profilePageData.id === currentUser.id) {
         setProfilePageData({
           ...profilePageData,
@@ -876,7 +853,6 @@ export default function App() {
         });
       }
 
-      // Sync localStorage cache
       const cacheKey = `cached_profile_${currentUser.username.toLowerCase()}`;
       try {
         const cached = localStorage.getItem(cacheKey);
@@ -887,7 +863,7 @@ export default function App() {
         }
       } catch (ce) {}
 
-      setShowEmojiPicker(false);
+      setShowClanModal(false);
     } catch (e) {
       console.error("Failed to update clan emoji:", e);
       alert("Failed to update clan emoji.");
@@ -914,7 +890,6 @@ export default function App() {
 
         if (error) throw error;
 
-        // update local state
         setCurrentUser({ ...currentUser, avatar_url: base64 });
         if (profilePageData) {
           setProfilePageData({ ...profilePageData, avatar_url: base64 });
@@ -960,7 +935,6 @@ export default function App() {
 
         if (error) throw error;
 
-        // update local state
         setCurrentUser({ ...currentUser, bio: serializedBio });
         if (profilePageData) {
           setProfilePageData({ ...profilePageData, bio: serializedBio });
@@ -973,7 +947,6 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  // Handle Edit Profile Save
   const handleEditProfileSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -991,7 +964,6 @@ export default function App() {
       }
 
       if (cleanUsername !== currentUser.username) {
-        // Validate uniqueness
         const { data: existingUser } = await supabase
           .from("profiles")
           .select("username")
@@ -1097,9 +1069,7 @@ export default function App() {
     navigateTo("feed");
   };
 
-  // Filter posts based on query
   const filteredPosts = posts.filter((post) => {
-    // Clan tab filter
     if (feedTab === "clan") {
       if (!currentUser || !currentUser.clan_emoji) {
         return false;
@@ -1155,7 +1125,7 @@ export default function App() {
   return (
     <div className={`min-h-screen ${bgClass} font-sans selection:bg-purple-500/20 flex flex-col md:flex-row transition-colors duration-300`}>
       
-      {/* 1. COMPACT RELEASE HISTORY MODAL */}
+      {/* Release history modal */}
       <AnimatePresence>
         {showVersions && (
           <div id="versions-popover-overlay" className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4" onClick={() => setShowVersions(false)}>
@@ -1202,10 +1172,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* 2. COMPUTER / DESKTOP SIDE MENU */}
+      {/* Desktop side menu */}
       <aside className={`hidden md:flex flex-col w-64 h-screen sticky top-0 px-5 py-6 border-r ${borderClass} bg-[#0c0a15] shrink-0 justify-between`}>
         <div className="space-y-6">
-          {/* Logo element */}
           <div className="flex items-center justify-between">
             <button 
               onClick={() => navigateTo("feed")}
@@ -1229,7 +1198,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* User Logon Quick Info Banner */}
           <div className={`p-3.5 rounded-xl border ${borderClass} bg-black/15 overflow-hidden`}>
             {currentUser ? (
               <div className="space-y-2.5">
@@ -1274,7 +1242,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Navigation Links */}
           <nav className="space-y-1">
             <button 
               onClick={() => navigateTo("feed")}
@@ -1310,7 +1277,6 @@ export default function App() {
           </nav>
         </div>
 
-        {/* Bottom controls side row */}
         <div className="space-y-4">
           <button 
             onClick={() => setIsAboutOpen(true)}
@@ -1321,7 +1287,7 @@ export default function App() {
         </div>
       </aside>
 
-      {/* 3. MOBILE UPPER STATUS CONTAINER BAR */}
+      {/* Mobile header */}
       <div className={`md:hidden sticky top-0 z-40 px-4 py-2.5 border-b ${borderClass} flex items-center justify-between bg-[#0c0a15]/90 backdrop-blur-lg`}>
         <button 
           onClick={() => navigateTo("feed")}
@@ -1353,14 +1319,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* 4. MAIN VIEW CONTENTS COLUMN */}
+      {/* Main content */}
       <main className="flex-1 w-full max-w-2xl mx-auto px-4 py-6 md:py-8 space-y-5 flex flex-col min-h-[calc(100vh-140px)] pb-24 md:pb-8">
         
-        {/* Active view component rendering */}
         <div className="flex-1">
           <AnimatePresence mode="wait">
             
-            {/* A. GENERAL TIMELINE WALL FEED VIEW */}
+            {/* FEED VIEW */}
             {activeView === "feed" && (
               <motion.div 
                 key="feed" 
@@ -1369,7 +1334,6 @@ export default function App() {
                 exit={{ opacity: 0, y: -10 }} 
                 className="space-y-4"
               >
-                {/* Embedded dynamic search control & trigger stats */}
                 <div className={`p-3.5 rounded-2xl border ${borderClass} bg-[#121118]/60 shadow-xs flex flex-col sm:flex-row gap-3`}>
                   <div className="relative flex-1">
                     <input 
@@ -1425,7 +1389,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Feed view switcher: Global vs My Clan */}
                 <div className="flex items-center space-x-2 border-b border-zinc-805/60 dark:border-zinc-800/40 pb-3 justify-start animate-fade-in">
                   <button
                     onClick={() => setFeedTab("global")}
@@ -1452,7 +1415,6 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Timeline rendering content */}
                 {searchMode === "users" ? (
                   <div className="space-y-3">
                     {searchQuery.trim().length === 0 ? (
@@ -1562,7 +1524,7 @@ export default function App() {
               </motion.div>
             )}
 
-            {/* B. DETAILED POST THREAD VIEW */}
+            {/* POST DETAIL VIEW */}
             {activeView === "post-detail" && (
               <motion.div 
                 key="post-detail" 
@@ -1608,7 +1570,7 @@ export default function App() {
               </motion.div>
             )}
 
-            {/* C. OWN PROFILE PAGE / PUBLIC PROFILE PAGE */}
+            {/* PROFILE VIEW */}
             {activeView === "profile" && (
               <motion.div 
                 key="profile" 
@@ -1618,9 +1580,7 @@ export default function App() {
                 className="space-y-5"
               >
                 {currentUser ? (
-                  /* Profile Details Page if authenticated */
                   <div className="space-y-4">
-                    {/* Header Banner Background Decorator */}
                     <div 
                       onClick={() => directBannerInputRef.current?.click()}
                       className="relative h-32 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in cursor-pointer group"
@@ -1631,7 +1591,6 @@ export default function App() {
                       }}
                       title="Click banner to upload custom image (No links!)"
                     >
-                      {/* Upload overlay */}
                       <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                         <span className="text-white text-xs font-bold font-sans flex items-center space-x-1 border border-white/20 bg-black/65 px-3 py-1.5 rounded-lg">
                           <Upload className="w-3.5 h-3.5" />
@@ -1639,7 +1598,6 @@ export default function App() {
                         </span>
                       </div>
 
-                      {/* Ambient circles */}
                       {!parsedMyBannerUrl && (
                         <>
                           <div className="absolute -top-10 -left-10 w-32 h-32 bg-purple-650/10 rounded-full blur-2xl pointer-events-none" />
@@ -1655,7 +1613,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Hidden direct file inputs */}
                     <input 
                       type="file" 
                       ref={directAvatarInputRef}
@@ -1671,7 +1628,6 @@ export default function App() {
                       onChange={handleDirectBannerUpload}
                     />
 
-                    {/* Floating Profile Stats & Metadata Info Grid */}
                     <div className="relative -mt-10 px-4 sm:px-6 pb-6 pt-2 rounded-2xl bg-[#0c0a15]/95 backdrop-blur-xl shadow-xl space-y-4">
                       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                         <div className="flex items-end space-x-4 animate-fade-in">
@@ -1696,43 +1652,15 @@ export default function App() {
                                 {currentUser.display_name || currentUser.username}
                               </h3>
 
-                              {/* Clan Emoji Trigger popover picker */}
                               <div className="relative inline-block ml-1">
                                 <button
                                   type="button"
-                                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                                  className="w-7 h-7 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-705 hover:bg-zinc-800 text-sm flex items-center justify-center cursor-pointer transition-all active:scale-95"
+                                  onClick={() => setShowClanModal(true)}
+                                  className="w-7 h-7 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-sm flex items-center justify-center cursor-pointer transition-all active:scale-95"
                                   title={currentUser.clan_emoji ? "Change Clan Emoji" : "Add Clan Emoji (+)"}
                                 >
                                   {currentUser.clan_emoji ? currentUser.clan_emoji : "+"}
                                 </button>
-
-                                {showEmojiPicker && (
-                                  <div className="absolute left-0 mt-2 p-3 bg-[#0d0d12] border border-zinc-800 rounded-xl shadow-2xl z-30 w-72 text-left space-y-2">
-                                    <p className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold font-mono">Select Clan Emoji</p>
-                                    <div className="grid grid-cols-6 gap-1.5 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
-                                      {["🐉", "🐲", "🦁", "🦅", "🐺", "🐻", "🥷", "🧙", "⚔️", "🛡️", "🗡️", "👑", "🔮", "🏰", "🌋", "🔋", "⚡", "✨", "⭐", "🌙", "🛸", "🚀", "👾", "🤖", "💻", "⌨️", "🖥️", "📡", "🧬", "🌐", "🎛️", "🔫", "🎮", "💊", "🎨", "🖌️", "✏️", "🎭", "🎬", "🎧", "🎵", "🎸", "🥁", "📸", "🎞️", "🖼️", "🧵", "🪡", "✂️", "🏆", "🥇", "🏅", "💪", "🥊", "🏋️", "🧗", "🏊", "🚴", "⛷️", "⚽", "🏀", "🎾", "🏈", "🌿", "🍃", "🌸", "🌻", "🍄", "🪶", "🐾", "🕊️", "🐝", "🦋", "☕", "🍜", "💀", "☠️", "🗿", "🧠", "💎"].map((emoji) => (
-                                        <button
-                                          key={emoji}
-                                          type="button"
-                                          onClick={() => handleUpdateClanEmoji(emoji)}
-                                          className="text-xl hover:bg-zinc-800 p-1.5 rounded transition-colors cursor-pointer text-center flex items-center justify-center hover:scale-110 active:scale-95"
-                                        >
-                                          {emoji}
-                                        </button>
-                                      ))}
-                                    </div>
-                                    {currentUser.clan_emoji && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdateClanEmoji(null)}
-                                        className="w-full text-center text-[9px] text-red-400 hover:bg-red-500/10 py-1 rounded transition-all font-bold uppercase font-mono cursor-pointer border border-transparent hover:border-red-500/10"
-                                      >
-                                        Leave Clan
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
                               </div>
                             </div>
                             <p className="text-xs text-purple-400 font-mono">@{currentUser.username}</p>
@@ -1741,14 +1669,13 @@ export default function App() {
 
                         <button 
                           onClick={() => navigateTo("settings")}
-                          className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0 flex items-center space-x-1.5 self-start sm:self-auto"
+                          className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0 self-start sm:self-auto"
                         >
                           <Settings className="w-3.5 h-3.5" />
                           <span>Edit Profile Settings</span>
                         </button>
                       </div>
 
-                      {/* Bio details and Connections row */}
                       <div className="pt-4 border-t border-zinc-800/65 space-y-3">
                         <div className="p-3.5 rounded-xl bg-black/45 text-left">
                           <p className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-sans">
@@ -1807,14 +1734,12 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  /* Auth Login Module block if signed out */
                   <div className={`max-w-md mx-auto rounded-3xl border border-zinc-200/90 dark:border-zinc-800/80 bg-white dark:bg-[#121118]/80 p-6 md:p-8 shadow-sm ${glassClass}`}>
                     <div className="text-center mb-6">
                       <h3 className="text-lg font-extrabold tracking-tight">Access Account</h3>
                       <p className={`text-[11px] mt-1 ${textMuted}`}>Create or log into a profile to claim your verified wall posts.</p>
                     </div>
 
-                    {/* Cupertino switch segments tab */}
                     <div className="flex bg-black/40 p-1 rounded-xl mb-6 border border-zinc-900">
                       <button 
                         onClick={() => { setAuthTab("login"); setLoginError(null); setAuthCaptchaPassed(false); }}
@@ -1835,15 +1760,7 @@ export default function App() {
                     </div>
 
                     {authTab === "login" ? (
-                      <form 
-                        onSubmit={handleLoginSubmit} 
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !authCaptchaPassed) {
-                            e.preventDefault();
-                          }
-                        }}
-                        className="space-y-4 text-left"
-                      >
+                      <form onSubmit={handleLoginSubmit} className="space-y-4 text-left">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Email Address</label>
                           <input 
@@ -1891,15 +1808,7 @@ export default function App() {
                         </button>
                       </form>
                     ) : (
-                      <form 
-                        onSubmit={handleRegisterSubmit} 
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !authCaptchaPassed) {
-                            e.preventDefault();
-                          }
-                        }}
-                        className="space-y-3.5 text-left"
-                      >
+                      <form onSubmit={handleRegisterSubmit} className="space-y-3.5 text-left">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Full Display Name</label>
                           <input 
@@ -1985,7 +1894,7 @@ export default function App() {
               </motion.div>
             )}
 
-            {/* D. PUBLIC DETAILED USER PROFILE VIEW */}
+            {/* USER PROFILE VIEW */}
             {activeView === "user-profile" && (
               <motion.div 
                 key="user-profile" 
@@ -2016,8 +1925,6 @@ export default function App() {
                   </div>
                 ) : profilePageData ? (
                   <div className="space-y-5 animate-fade-in">
-                    
-                    {/* Header Banner Background Decorator */}
                     <div 
                       className="relative h-32 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in"
                       style={{ 
@@ -2026,7 +1933,6 @@ export default function App() {
                           : 'linear-gradient(to bottom right, #1b143a, #100820, #140626)' 
                       }}
                     >
-                      {/* Ambient circles */}
                       {!profilePageData.banner_url && (
                         <>
                           <div className="absolute -top-10 -left-10 w-32 h-32 bg-purple-650/10 rounded-full blur-2xl" />
@@ -2041,7 +1947,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Floating Profile Stats & Metadata Info Grid */}
                     <div className="relative -mt-10 px-4 sm:px-6 pb-6 pt-2 rounded-2xl bg-[#0c0a15]/95 backdrop-blur-xl shadow-xl space-y-4">
                       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                         <div className="flex items-end space-x-4">
@@ -2088,7 +1993,6 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* Bio details and Connections row */}
                       <div className="pt-4 border-t border-zinc-800/65 space-y-3">
                         <div className="p-3.5 rounded-xl bg-black/45 border border-zinc-900/40 text-left">
                           <p className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-sans">
@@ -2114,7 +2018,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Stream of this specified user's wall publications */}
                     <div className="space-y-3.5">
                       <h4 className="text-xs font-extrabold uppercase font-mono tracking-widest text-purple-400 text-left">
                         Publications by @{profilePageData.username}
@@ -2146,13 +2049,12 @@ export default function App() {
                         </div>
                       )}
                     </div>
-
                   </div>
                 ) : null}
               </motion.div>
             )}
 
-            {/* E. OWN EDITABLE SETTINGS PAGE */}
+            {/* SETTINGS VIEW */}
             {activeView === "settings" && (
               <motion.div 
                 key="settings" 
@@ -2180,8 +2082,6 @@ export default function App() {
                     </div>
 
                     <form onSubmit={handleEditProfileSave} className="space-y-5 text-left">
-                      
-                      {/* Avatar config */}
                       <div className="flex items-center space-x-4 p-4 rounded-2xl bg-[#c0c0c0]/5">
                         <img 
                           src={editAvatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(editUsername)}`}
@@ -2212,7 +2112,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Cover Banner config */}
                       <div className="flex items-center space-x-4 p-4 rounded-2xl bg-[#c0c0c0]/5">
                         <div 
                           className="w-14 h-14 rounded-lg bg-cover bg-center border border-purple-500/10 shrink-0 bg-purple-500/5 overflow-hidden flex items-center justify-center text-[9px] text-zinc-500 font-bold uppercase"
@@ -2327,7 +2226,6 @@ export default function App() {
                           Cancel
                         </button>
                       </div>
-
                     </form>
 
                     <div className="pt-6 border-t border-zinc-200/60 dark:border-zinc-800/60 flex flex-col items-center">
@@ -2339,7 +2237,6 @@ export default function App() {
                         Disconnect & Log Out
                       </button>
                     </div>
-
                   </div>
                 ) : (
                   <div className="text-center py-12">
@@ -2352,6 +2249,7 @@ export default function App() {
               </motion.div>
             )}
 
+            {/* ADMIN VIEW */}
             {activeView === "admin" as any && (
               <motion.div
                 key="admin"
@@ -2403,7 +2301,6 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-6">
-                    {/* Console Header */}
                     <div id="admin-header-panel" className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/80 flex flex-col sm:flex-row justify-between sm:items-center gap-4`}>
                       <div className="flex items-center space-x-3">
                         <div className="p-2.5 rounded-xl bg-green-500/10 text-green-400">
@@ -2440,7 +2337,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Navigation Tabs */}
                     <div id="admin-tabs" className="flex rounded-xl p-1 bg-[#121118]/60 border border-zinc-800/60 font-sans shadow-inner">
                       <button 
                         onClick={() => setAdminActiveTab("stats")}
@@ -2477,7 +2373,6 @@ export default function App() {
                       </button>
                     </div>
 
-                    {/* Tab Contents */}
                     <div className="space-y-4">
                       {adminStatsError && (
                         <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium leading-relaxed">
@@ -2485,10 +2380,8 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* STATS TAB */}
                       {adminActiveTab === "stats" && adminStats && (
                         <div className="space-y-5">
-                          {/* Top row widget display */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className={`p-4 rounded-2xl border ${borderClass} bg-[#121118]/45 text-center`}>
                               <p className="text-[10px] uppercase tracking-widest text-purple-400 font-mono font-bold">Total Registered Users</p>
@@ -2502,7 +2395,6 @@ export default function App() {
                             </div>
                           </div>
 
-                          {/* Sessions listing table */}
                           <div className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/45 space-y-4`}>
                             <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400 font-mono">Online User telemetry details</h3>
                             {adminStats.onlineSessions && adminStats.onlineSessions.length > 0 ? (
@@ -2520,7 +2412,6 @@ export default function App() {
                                       </div>
                                     </div>
 
-                                    {/* Telemetry info */}
                                     <div className="space-y-1 text-left sm:text-right">
                                       <div className="flex flex-wrap gap-1.5 justify-start sm:justify-end">
                                         <span className="px-1.5 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-400 font-mono text-[9px] font-bold">
@@ -2537,7 +2428,6 @@ export default function App() {
                                       </p>
                                     </div>
 
-                                    {/* Block operations */}
                                     <div className="shrink-0">
                                       <button 
                                         onClick={() => handleBlockAction({ ip: ses.ip, userAgent: ses.userAgent })}
@@ -2556,10 +2446,8 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* SECURITY TAB */}
                       {adminActiveTab === "security" && adminStats && (
                         <div className="space-y-4">
-                          {/* Attack Logs list */}
                           <div className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/45 space-y-4`}>
                             <h3 className="text-xs font-bold uppercase tracking-widest text-red-400 font-mono flex items-center gap-1.5">
                               <span>Security Alerts / Suspicious Logs</span>
@@ -2597,11 +2485,9 @@ export default function App() {
                             )}
                           </div>
 
-                          {/* Blocked rule registries */}
                           <div className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/45 space-y-4`}>
                             <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400 font-mono">Standard Blocklist Shields</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {/* Blocked IPs */}
                               <div className="space-y-2">
                                 <h4 className="text-[10px] font-bold uppercase tracking-wider text-purple-400 font-mono">Banned IP Rules</h4>
                                 <div className="p-3.5 rounded-xl bg-black/20 border border-zinc-800/80 max-h-48 overflow-y-auto space-y-2">
@@ -2623,7 +2509,6 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {/* Blocked User-Agents */}
                               <div className="space-y-2">
                                 <h4 className="text-[10px] font-bold uppercase tracking-wider text-purple-400 font-mono">Banned Device Rules (UA)</h4>
                                 <div className="p-3.5 rounded-xl bg-black/20 border border-zinc-800/80 max-h-48 overflow-y-auto space-y-2">
@@ -2649,7 +2534,6 @@ export default function App() {
                         </div>
                       )}
 
-                      {/* MODERATION TAB */}
                       {adminActiveTab === "moderation" && (
                         <div className="space-y-4">
                           <div className={`p-5 rounded-2xl border ${borderClass} bg-[#121118]/45 space-y-4`}>
@@ -2679,10 +2563,8 @@ export default function App() {
                                       </button>
                                     </div>
 
-                                    {/* Post context body */}
                                     <p className="text-xs text-zinc-350 bg-black/15 p-2 rounded border border-zinc-850 break-words font-sans">{pst.content}</p>
 
-                                    {/* Associated Comments */}
                                     {pst.comments && pst.comments.length > 0 && (
                                       <div className="pl-4 border-l border-zinc-800 space-y-2">
                                         <p className="text-[9px] font-bold text-zinc-550 uppercase tracking-widest font-mono">Replies Log ({pst.comments.length})</p>
@@ -2724,7 +2606,7 @@ export default function App() {
 
       </main>
 
-      {/* 5. MOBILE BOTTOM TAB NAVIGATION BAR DOCK */}
+      {/* Mobile bottom navigation */}
       <div className={`md:hidden fixed bottom-0 left-0 right-0 z-40 border-t ${borderClass} px-6 py-3.5 flex justify-around items-center ${isDark ? 'bg-[#0f0e15]/95' : 'bg-white/95'} backdrop-blur-lg`}>
         <button 
           onClick={() => navigateTo("feed")}
@@ -2761,24 +2643,24 @@ export default function App() {
         </button>
       </div>
 
-      {/* About Modal Dialog */}
+      {/* About Modal */}
       <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
 
-      {/* Profile Configurations settings Modal */}
+      {/* Settings Modal */}
       <SettingsModal 
         isOpen={isSettingsOpen} 
         onClose={() => setIsSettingsOpen(false)} 
         currentUser={currentUser}
         onProfileUpdated={(updatedUser) => {
           setCurrentUser(updatedUser);
-          fetchPosts(); // Refreshes timelines with correct profile details
+          fetchPosts();
           if (updatedUser?.username) {
             fetchUserProfileData(updatedUser.username);
           }
         }}
       />
 
-      {/* Compose Publication Modal pop-over */}
+      {/* Create Post Modal */}
       <CreatePostModal 
         isOpen={isPostModalOpen}
         onClose={() => {
@@ -2791,7 +2673,79 @@ export default function App() {
         onClearRepost={() => setRepostOfPost(null)}
       />
 
+      {/* Clan Emoji Modal - прямо здесь, без отдельного компонента */}
+      <AnimatePresence>
+        {showClanModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: "spring", duration: 0.4 }}
+              className="bg-[#0f0f14] border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl shadow-purple-950/30"
+            >
+              <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-4 bg-gradient-to-r from-purple-950/20 to-transparent">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span className="text-sm font-bold tracking-wide text-purple-400 font-mono uppercase">
+                    Choose Clan Emblem
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowClanModal(false)}
+                  className="text-slate-400 hover:text-white transition-colors bg-slate-800/50 p-1.5 rounded-lg border border-slate-700 cursor-pointer hover:bg-slate-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
 
+              {currentUser?.clan_emoji && (
+                <div className="mx-5 mt-4 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-between">
+                  <span className="text-xs text-slate-300 font-mono">Current Clan Emoji:</span>
+                  <div className="flex items-center space-x-3">
+                    <span className="text-3xl">{currentUser.clan_emoji}</span>
+                    <button
+                      onClick={() => handleUpdateClanEmoji(null)}
+                      className="px-2.5 py-1 text-[10px] font-bold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 rounded-lg border border-red-500/20 transition-all"
+                    >
+                      Leave Clan
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="p-5">
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold font-mono mb-3">
+                  Select your faction symbol
+                </p>
+                <div className="grid grid-cols-7 gap-2 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
+                  {CLAN_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => {
+                        handleUpdateClanEmoji(emoji);
+                      }}
+                      className={`
+                        text-2xl p-2 rounded-xl transition-all duration-150
+                        hover:scale-110 hover:bg-purple-500/20 active:scale-95
+                        ${currentUser?.clan_emoji === emoji ? 'bg-purple-500/30 ring-1 ring-purple-400' : 'bg-slate-900/50 hover:bg-slate-800'}
+                      `}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-800/80 px-5 py-3 bg-slate-950/30">
+                <p className="text-[9px] text-slate-500 text-center font-mono">
+                  Your clan emblem will appear next to your username
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );
