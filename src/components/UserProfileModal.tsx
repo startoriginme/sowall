@@ -150,19 +150,12 @@ export default function UserProfileModal({
   const handleDeletePost = async (postId: string) => {
     if (!window.confirm("Are you sure you want to delete this post?")) return;
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": token ? `Bearer ${token}` : "",
-          "Content-Type": "application/json"
-        }
-      });
-      
-      const resData = await response.json();
-      if (!response.ok || !resData.success) {
-        throw new Error(resData.error || "Failed to delete post.");
-      }
+      const { error } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", postId);
+
+      if (error) throw error;
       
       // Update local state
       if (profileData) {

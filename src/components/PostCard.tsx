@@ -237,19 +237,12 @@ export default function PostCard({
   const handleDeletePost = async () => {
     if (!window.confirm("Are you sure you want to permanently delete this post from the wall?")) return;
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`/api/posts/${post.id}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": token ? `Bearer ${token}` : "",
-          "Content-Type": "application/json"
-        }
-      });
-      
-      const resData = await response.json();
-      if (!response.ok || !resData.success) {
-        throw new Error(resData.error || "Failed to delete post.");
-      }
+      const { error } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", post.id);
+
+      if (error) throw error;
       
       if (onPostDeleted) {
         onPostDeleted();

@@ -132,25 +132,57 @@ export default function AccountModal({
       setRegError(null);
       setRegSuccess(null);
 
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          name: regName.trim(),
-          username: cleanUsername,
-          email: regEmail.trim(),
-          password: regPassword
-        })
-      });
+      // 1. Check if username is taken in profiles
+      const { data: existingProfile } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("username", cleanUsername)
+        .maybeSingle();
 
-      const resData = await response.json();
-      if (!response.ok || !resData.success) {
-        throw new Error(resData.error || "Failed to register account.");
+      if (existingProfile) {
+        throw new Error("This username is already taken.");
       }
 
-      setRegSuccess(resData.message || "Perfect! Please verify your email and login.");
+      // 2. Sign up via Supabase Standard signUp to trigger confirmation email system
+      const { data: signupData, error: signupError } = await supabase.auth.signUp({
+        email: regEmail.trim(),
+        password: regPassword,
+      });
+
+      if (signupError) throw signupError;
+      if (!signupData.user) {
+        throw new Error("Failed to create user account.");
+      }
+
+      // 3. Create the profile
+      const bioData = JSON.stringify({
+        text: "",
+        discord: "",
+        email: regEmail.trim(),
+      });
+
+      const isVerifiedUser = ["kodewt", "mavebo", "kode", "jocko", "dil_doe"].includes(cleanUsername);
+
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .insert({
+          id: signupData.user.id,
+          username: cleanUsername,
+          display_name: regName.trim(),
+          avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanUsername)}`,
+          bio: bioData,
+          is_verified: isVerifiedUser,
+          created_at: new Date().toISOString()
+        });
+
+      if (profileError) {
+        try {
+          await supabase.auth.signOut();
+        } catch (e) {}
+        throw new Error("Failed to create profile: " + profileError.message);
+      }
+
+      setRegSuccess("Registration successful! You can now log into your account.");
       
       setRegName("");
       setRegUsername("");
@@ -348,19 +380,12 @@ export default function AccountModal({
   const handleDeleteOwnPost = async (postId: string) => {
     if (!window.confirm("Are you sure you want to delete this post?")) return;
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": token ? `Bearer ${token}` : "",
-          "Content-Type": "application/json"
-        }
-      });
-      
-      const resData = await response.json();
-      if (!response.ok || !resData.success) {
-        throw new Error(resData.error || "Failed to delete post.");
-      }
+      const { error } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", postId);
+
+      if (error) throw error;
       
       setProfilePosts(profilePosts.filter(p => p.id !== postId));
       if (onPostDeleted) onPostDeleted();

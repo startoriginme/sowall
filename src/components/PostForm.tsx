@@ -155,31 +155,43 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
       setLoading(true);
       setErrorMsg(null);
 
-      const token = localStorage.getItem("token");
-      const headers: any = {
-        "Content-Type": "application/json"
-      };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
+      let user_id: string | null = null;
+      let author_name = "Anonymous";
+
+      if (postMode === "account" && currentUser) {
+        user_id = currentUser.id;
+        author_name = currentUser.display_name || currentUser.username || "User";
+      } else if (postMode === "custom" && customName.trim() !== "") {
+        author_name = customName.trim();
       }
 
-      const res = await fetch("/api/posts", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
+      const { data: postData, error: postErr } = await supabase
+        .from("posts")
+        .insert({
           content: finalContent,
-          is_anonymous: postMode === "anonymous",
-          custom_name: postMode === "custom" ? customName : undefined
+          author_name,
+          user_id,
+          created_at: new Date().toISOString()
         })
-      });
+        .select()
+        .single();
 
-      const resData = await res.json();
-      if (!res.ok || !resData.success) {
-        if (res.status === 429 || resData.error === "rate_limited") {
-          const remainingSeconds = resData.remainingSeconds || 300;
-          localStorage.setItem("last_post_time", (Date.now() - (5 * 60 * 1000 - remainingSeconds * 1000)).toString());
+      if (postErr) throw postErr;
+
+      // Handle repost creation as well if modern repost table is used/exists
+      if (repostOfPost && postData) {
+        try {
+          await supabase
+            .from("reposts")
+            .insert({
+              post_id: postData.id,
+              original_post_id: repostOfPost.id,
+              user_id: currentUser ? currentUser.id : null,
+              created_at: new Date().toISOString(),
+            });
+        } catch (repostEx) {
+          console.warn("Failed to insert into reposts table, but parent post succeeded:", repostEx);
         }
-        throw new Error(resData.message || resData.error || "Failed to publish post.");
       }
 
       // Store local timestamp on success
