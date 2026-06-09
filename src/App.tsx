@@ -470,6 +470,19 @@ export default function App() {
         posts: sortedPosts
       };
 
+      if (currentUser && profile.id === currentUser.id) {
+        setCurrentUser({
+          ...currentUser,
+          clan_emoji: profile.clan_emoji,
+          display_name: profile.display_name,
+          bio: profile.bio,
+          avatar_url: profile.avatar_url,
+          username: profile.username,
+          discord: profile.discord,
+          is_verified: profile.is_verified
+        } as any);
+      }
+
       setProfilePageData(freshProfileData);
       try {
         localStorage.setItem(cacheKey, JSON.stringify(freshProfileData));
@@ -1075,6 +1088,7 @@ export default function App() {
           discord: freshProfile.discord,
           avatar_url: freshProfile.avatar_url,
           username: freshProfile.username,
+          clan_emoji: freshProfile.clan_emoji,
         };
         setCurrentUser(updatedUser);
       }
