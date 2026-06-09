@@ -583,6 +583,7 @@ export default function App() {
           avatar_url: profile.avatar_url,
           is_verified: profile.is_verified,
           created_at: profile.created_at,
+          clan_emoji: profile.clan_emoji,
           email: session.user.email
         };
         
@@ -620,6 +621,7 @@ export default function App() {
             avatar_url: profile.avatar_url,
             is_verified: profile.is_verified,
             created_at: profile.created_at,
+            clan_emoji: profile.clan_emoji,
             email: session.user.email
           };
           setCurrentUser(u);
@@ -792,6 +794,7 @@ export default function App() {
             avatar_url: profile.avatar_url,
             is_verified: profile.is_verified,
             created_at: profile.created_at,
+            clan_emoji: profile.clan_emoji,
             email: authData.user.email
           };
           setCurrentUser(u);
@@ -899,6 +902,26 @@ export default function App() {
         ...currentUser,
         clan_emoji: emoji
       } as any);
+
+      // Sync active profilePageData
+      if (profilePageData && profilePageData.id === currentUser.id) {
+        setProfilePageData({
+          ...profilePageData,
+          clan_emoji: emoji
+        });
+      }
+
+      // Sync localStorage cache
+      const cacheKey = `cached_profile_${currentUser.username.toLowerCase()}`;
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          parsed.clan_emoji = emoji;
+          localStorage.setItem(cacheKey, JSON.stringify(parsed));
+        }
+      } catch (ce) {}
+
       setShowEmojiPicker(false);
     } catch (e) {
       console.error("Failed to update clan emoji:", e);
@@ -1178,12 +1201,24 @@ export default function App() {
               </h4>
               <div className="space-y-4 text-xs leading-relaxed">
                 <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
-                  <p className="font-bold text-purple-400">v1.1 (Current Version)</p>
-                  <p className={`mt-1 ${textClass}`}>Profiles, Username mentions, Polls, Attachments, Visual Apple layout, Light white default theme, Case insensitivity.</p>
+                  <p className="font-bold text-purple-400">v1.2 (current)</p>
+                  <ul className={`mt-1.5 list-disc list-inside space-y-0.5 ${textClass}`}>
+                    <li>Fixed security problems</li>
+                    <li>Spam protection</li>
+                    <li>Emoji clans</li>
+                    <li>Banners</li>
+                    <li>Design update</li>
+                    <li>Minor improvements</li>
+                  </ul>
                 </div>
                 <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
-                  <p className="font-bold text-purple-400/60">v1.0 (Initial Release)</p>
-                  <p className={`mt-1 ${isDark ? 'text-zinc-500' : 'text-zinc-500'}`}>Minimalist Wall Broadcasts database creation, core UI scaffolding, replies, and secure connections.</p>
+                  <p className="font-bold text-zinc-400">v1.1</p>
+                  <ul className={`mt-1.5 list-disc list-inside space-y-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                    <li>Profiles added</li>
+                    <li>Polls and attachments</li>
+                    <li>Design update</li>
+                    <li>Minor improvements</li>
+                  </ul>
                 </div>
               </div>
               <button 
@@ -1220,7 +1255,7 @@ export default function App() {
               onClick={() => setShowVersions(true)}
               className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 cursor-pointer hover:bg-purple-500/25 transition-all"
             >
-              v1.1
+              v1.2
             </button>
           </div>
 
@@ -1338,7 +1373,7 @@ export default function App() {
             onClick={() => setShowVersions(true)}
             className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 cursor-pointer"
           >
-            v1.1
+            v1.2
           </button>
           {currentUser && (
             <button onClick={() => navigateTo("settings")} className="p-1.5 text-zinc-400 hover:text-purple-400">
@@ -1709,15 +1744,15 @@ export default function App() {
                                 </button>
 
                                 {showEmojiPicker && (
-                                  <div className="absolute left-0 mt-2 p-3 bg-[#0d0d12] border border-zinc-800 rounded-xl shadow-2xl z-30 w-44 text-left space-y-2">
+                                  <div className="absolute left-0 mt-2 p-3 bg-[#0d0d12] border border-zinc-800 rounded-xl shadow-2xl z-30 w-72 text-left space-y-2">
                                     <p className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold font-mono">Select Clan Emoji</p>
-                                    <div className="grid grid-cols-4 gap-1.5">
-                                      {["🥷", "👾", "🗿", "🚀", "👑", "🐉", "🔥", "💀", "💻", "🧠", "⚔️", "🛡️", "🐈", "🦉", "☠️", "🛸"].map((emoji) => (
+                                    <div className="grid grid-cols-6 gap-1.5 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
+                                      {["🐉", "🐲", "🦁", "🦅", "🐺", "🐻", "🥷", "🧙", "⚔️", "🛡️", "🗡️", "👑", "🔮", "🏰", "🌋", "🔋", "⚡", "✨", "⭐", "🌙", "🛸", "🚀", "👾", "🤖", "💻", "⌨️", "🖥️", "📡", "🧬", "🌐", "🎛️", "🔫", "🎮", "💊", "🎨", "🖌️", "✏️", "🎭", "🎬", "🎧", "🎵", "🎸", "🥁", "📸", "🎞️", "🖼️", "🧵", "🪡", "✂️", "🏆", "🥇", "🏅", "💪", "🥊", "🏋️", "🧗", "🏊", "🚴", "⛷️", "⚽", "🏀", "🎾", "🏈", "🌿", "🍃", "🌸", "🌻", "🍄", "🪶", "🐾", "🕊️", "🐝", "🦋", "☕", "🍜", "💀", "☠️", "🗿", "🧠", "💎"].map((emoji) => (
                                         <button
                                           key={emoji}
                                           type="button"
                                           onClick={() => handleUpdateClanEmoji(emoji)}
-                                          className="text-lg hover:bg-zinc-800 p-1 rounded transition-colors cursor-pointer"
+                                          className="text-xl hover:bg-zinc-800 p-1.5 rounded transition-colors cursor-pointer text-center flex items-center justify-center hover:scale-110 active:scale-95"
                                         >
                                           {emoji}
                                         </button>
@@ -2072,6 +2107,11 @@ export default function App() {
                               <h3 className="font-extrabold text-[#fafafa] text-lg font-sans tracking-tight leading-none">
                                 {profilePageData.display_name || profilePageData.username}
                               </h3>
+                              {profilePageData.clan_emoji && (
+                                <span className="text-xl shrink-0 inline-block ml-1" title="Clan Emoji">
+                                  {profilePageData.clan_emoji}
+                                </span>
+                              )}
                             </div>
                             <p className="text-xs text-purple-400 font-mono">@{profilePageData.username}</p>
                           </div>
