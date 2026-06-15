@@ -347,3 +347,153 @@ body {
   }
 }
 
+/* Beautiful White Design Custom Overrides */
+html[data-theme="white"] body {
+  background-color: #ffffff !important;
+  color: #09090b !important;
+}
+
+html[data-theme="white"] .min-h-screen {
+  background-color: #ffffff !important;
+}
+
+html[data-theme="white"] aside {
+  background-color: #fafafa !important;
+  border-right-color: #e4e4e7 !important;
+}
+
+html[data-theme="white"] .md\:hidden.sticky {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-bottom-color: #e4e4e7 !important;
+}
+
+/* Text Overrides */
+html[data-theme="white"] .text-white,
+html[data-theme="white"] .text-\[\#fafafa\],
+html[data-theme="white"] .text-\[\#f1eefc\],
+html[data-theme="white"] h1,
+html[data-theme="white"] h2,
+html[data-theme="white"] h3,
+html[data-theme="white"] h4,
+html[data-theme="white"] .font-black.tracking-tight span {
+  color: #09090b !important;
+}
+
+html[data-theme="white"] .text-purple-400,
+html[data-theme="white"] .text-purple-250,
+html[data-theme="white"] .text-purple-300,
+html[data-theme="white"] .text-purple-200 {
+  color: #18181b !important;
+}
+
+html[data-theme="white"] .text-zinc-150,
+html[data-theme="white"] .text-zinc-300,
+html[data-theme="white"] .text-slate-300,
+html[data-theme="white"] .text-slate-200,
+html[data-theme="white"] .text-zinc-400,
+html[data-theme="white"] .text-slate-400,
+html[data-theme="white"] .text-slate-405,
+html[data-theme="white"] .text-slate-500,
+html[data-theme="white"] .text-zinc-500 {
+  color: #52525b !important;
+}
+
+/* Purple Element Monochrome Overrides */
+html[data-theme="white"] .bg-purple-600 {
+  background-color: #09090b !important;
+  color: #ffffff !important;
+}
+
+html[data-theme="white"] .hover\:bg-purple-700:hover {
+  background-color: #18181b !important;
+}
+
+html[data-theme="white"] .bg-purple-500\/10 {
+  background-color: #fafafa !important;
+  border-color: #e4e4e7 !important;
+  color: #09090b !important;
+}
+
+html[data-theme="white"] .border-purple-500\/20,
+html[data-theme="white"] .border-purple-500\/25,
+html[data-theme="white"] .border-purple-500\/30 {
+  border-color: #e4e4e7 !important;
+}
+
+html[data-theme="white"] .bg-purple-500\/5 {
+  background-color: #fafafa !important;
+}
+
+/* Verification Badge Overlay */
+html[data-theme="white"] .fill-purple-950 {
+  fill: #ffffff !important;
+}
+
+html[data-theme="white"] .fill-zinc-950 {
+  fill: #ffffff !important;
+}
+
+/* Card and Container Backgrounds */
+html[data-theme="white"] .bg-\[\#0a0815\],
+html[data-theme="white"] .bg-\[\#0b0b0f\],
+html[data-theme="white"] .bg-\[\#0c0a15\],
+html[data-theme="white"] .bg-\[\#0d0c14\],
+html[data-theme="white"] .bg-\[\#0d0d14\],
+html[data-theme="white"] .hover\:bg-\[\#0d0d14\]:hover,
+html[data-theme="white"] .bg-\[\#050508\]\/60,
+html[data-theme="white"] .bg-\[\#0f0f14\],
+html[data-theme="white"] .bg-\[\#0f0e15\],
+html[data-theme="white"] .bg-\[\#161620\],
+html[data-theme="white"] .bg-zinc-950,
+html[data-theme="white"] .bg-zinc-950\/40,
+html[data-theme="white"] .bg-\[\#121118\]\/30,
+html[data-theme="white"] .bg-\[\#121118\]\/45,
+html[data-theme="white"] .bg-\[\#161421\],
+html[data-theme="white"] .bg-\[\#181622\]\/40,
+html[data-theme="white"] .bg-zinc-900,
+html[data-theme="white"] .bg-zinc-900\/40,
+html[data-theme="white"] .bg-black\/15,
+html[data-theme="white"] .bg-black\/20,
+html[data-theme="white"] .bg-black\/45 {
+  background-color: #fbfbfb !important;
+  background: #fbfbfb !important;
+}
+
+html[data-theme="white"] .border-zinc-800,
+html[data-theme="white"] .border-zinc-850,
+html[data-theme="white"] .border-zinc-900,
+html[data-theme="white"] .border-zinc-900\/40,
+html[data-theme="white"] .border-zinc-805\/60 {
+  border-color: #e4e4e7 !important;
+}
+
+html[data-theme="white"] .glass-panel,
+html[data-theme="white"] .liquid-glass-dark {
+  background-color: #ffffff !important;
+  border-color: #e4e4e7 !important;
+  color: #09090b !important;
+}
+
+html[data-theme="white"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15) !important;
+}
+
+html[data-theme="white"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Dialog & Input Overrides */
+html[data-theme="white"] input,
+html[data-theme="white"] textarea,
+html[data-theme="white"] select {
+  background-color: #ffffff !important;
+  border-color: #e4e4e7 !important;
+  color: #09090b !important;
+}
+
+html[data-theme="white"] input::placeholder,
+html[data-theme="white"] textarea::placeholder {
+  color: #a1a1aa !important;
+}
+
+

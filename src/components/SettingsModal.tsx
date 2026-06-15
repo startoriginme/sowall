@@ -14,13 +14,30 @@ interface SettingsModalProps {
   onClose: () => void;
   currentUser: UserSessionData | null;
   onProfileUpdated: (updatedUser: UserSessionData) => void;
+  theme: "dark" | "white";
+  setTheme: (t: "dark" | "white") => void;
 }
+
+export const STARTORIGIN_CLANS = [
+  { emoji: "💻", name: "Cyber Code Alliance" },
+  { emoji: "🎨", name: "Creative Art Guild" },
+  { emoji: "🧪", name: "Science & Tech Labs" },
+  { emoji: "🦉", name: "Writers & Thought Hub" },
+  { emoji: "💎", name: "Elite VIP Club" },
+  { emoji: "👽", name: "Rebels Outpost" },
+  { emoji: "⚡", name: "Volt Energy Shock" },
+  { emoji: "📈", name: "Alpha Traders Guild" },
+  { emoji: "🍕", name: "Foodie Crew" },
+  { emoji: "🎵", name: "Synth Music Group" },
+];
 
 export default function SettingsModal({
   isOpen,
   onClose,
   currentUser,
   onProfileUpdated,
+  theme,
+  setTheme,
 }: SettingsModalProps) {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
@@ -142,8 +159,19 @@ export default function SettingsModal({
         }
       }
 
+      let existingBioData: any = {};
+      try {
+        existingBioData = JSON.parse(currentUser.bio || "{}");
+        if (typeof existingBioData !== "object" || existingBioData === null) {
+          existingBioData = {};
+        }
+      } catch (e) {
+        existingBioData = {};
+      }
+
       // Serialize bio + banner_url
       const serializedBio = JSON.stringify({
+        ...existingBioData,
         text: bio.trim(),
         banner_url: bannerUrl.trim(),
       });
@@ -157,6 +185,7 @@ export default function SettingsModal({
           discord: discord.trim(),
           avatar_url: avatarUrl.trim() || null,
           username: cleanUsername,
+          clan_emoji: currentUser.clan_emoji || null,
         })
         .eq("id", currentUser.id);
 
@@ -170,6 +199,7 @@ export default function SettingsModal({
         discord: discord.trim(),
         avatar_url: avatarUrl.trim() || null,
         username: cleanUsername,
+        clan_emoji: currentUser.clan_emoji || null,
       };
 
       onProfileUpdated(updatedData);
@@ -200,8 +230,8 @@ export default function SettingsModal({
           {/* Header */}
           <div className="flex items-center justify-between border-b border-zinc-800 pb-4 mb-5">
             <div className="flex flex-col text-left">
-              <h2 className="text-base font-extrabold text-white">Profile Configurations</h2>
-              <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider mt-0.5">Edit credentials & design</p>
+              <h2 className="text-base font-extrabold text-white">profile configurations</h2>
+              <p className="text-[10px] text-zinc-500 font-mono mt-0.5">edit credentials & design</p>
             </div>
             <button
               id="close-settings-modal"
@@ -216,8 +246,8 @@ export default function SettingsModal({
             
             {/* Visual Header Customizer banner (NO LINKS INPUTS) */}
             <div className="space-y-1.5 text-left">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                Profile Banner & Avatar (Click to Upload directly)
+              <label className="text-[10px] font-bold text-zinc-400">
+                profile banner & avatar (click to upload directly)
               </label>
               
               <div 
@@ -232,11 +262,11 @@ export default function SettingsModal({
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                   <div className="text-white text-xs font-bold flex items-center space-x-1.5 bg-black/60 px-3 py-1.5 rounded-lg border border-white/10">
                     <Upload className="w-3.5 h-3.5" />
-                    <span>Upload Cover Banner</span>
+                    <span>upload cover banner</span>
                   </div>
                 </div>
                 {!bannerUrl && (
-                  <span className="text-[10px] uppercase font-mono tracking-wider text-purple-400 group-hover:opacity-0 transition-opacity">Select Custom Banner</span>
+                  <span className="text-[10px] font-mono text-purple-400 group-hover:opacity-0 transition-opacity">select custom banner</span>
                 )}
 
                 {/* Avatar Preview Floating Inside Banner */}
@@ -245,7 +275,7 @@ export default function SettingsModal({
                     e.stopPropagation(); // prevent triggering banner upload
                     avatarInputRef.current?.click();
                   }}
-                  className="absolute bottom-2 left-3 w-14 h-14 rounded-lg bg-zinc-900 overflow-hidden border-2 border-[#0b0b0f] cursor-pointer group/avatar shrink-0 z-10"
+                  className="absolute bottom-2 left-3 w-14 h-14 rounded-full bg-zinc-900 overflow-hidden border-2 border-[#0b0b0f] cursor-pointer group/avatar shrink-0 z-10"
                 >
                   <img 
                     src={avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(username || "guest")}`} 
@@ -278,21 +308,21 @@ export default function SettingsModal({
             {/* Inputs Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-left">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Display Name</label>
+                <label className="text-[10px] font-bold tracking-wider text-zinc-400">display name</label>
                 <input 
                   type="text"
                   required
                   maxLength={40}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Admiral Smith"
-                  className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-90 w-full bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600"
+                  placeholder="e.g. jocko smith"
+                  className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-90 w-full bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600"
                 />
-                <span className="text-[9px] text-zinc-550 block leading-tight">No emojis allowed.</span>
+                <span className="text-[9px] text-zinc-550 block leading-tight">no emojis allowed.</span>
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">User Handle (Username)</label>
+                <label className="text-[10px] font-bold tracking-wider text-zinc-400">username handle</label>
                 <input 
                   type="text"
                   required
@@ -300,35 +330,37 @@ export default function SettingsModal({
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="e.g. jocko_smith"
-                  className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-90 w-full bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600"
+                  className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-90 w-full bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600"
                 />
               </div>
             </div>
 
             <div className="space-y-1 text-left">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Discord connection tag</label>
+              <label className="text-[10px] font-bold tracking-wider text-zinc-400">discord connection tag</label>
               <input 
                 type="text"
                 maxLength={35}
                 value={discord}
                 onChange={(e) => setDiscord(e.target.value)}
                 placeholder="e.g. jockosmith#4321"
-                className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-90 w-full bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600"
+                className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 bg-zinc-950 w-full bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600"
               />
             </div>
 
+
+
             <div className="space-y-1 text-left">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Biography logs (About Me)</label>
+              <label className="text-[10px] font-bold tracking-wider text-zinc-400">biography (about me)</label>
               <textarea
                 rows={3}
                 maxLength={250}
-                placeholder="Write background information or log summaries..."
+                placeholder="write some background information..."
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
-                className="w-full rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600"
+                className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600"
               />
               <div className="flex justify-between text-[9px] text-zinc-500 font-mono">
-                <span>Maximum 250 characters.</span>
+                <span>maximum 250 characters.</span>
                 <span>{bio.length} / 250</span>
               </div>
             </div>
@@ -342,7 +374,7 @@ export default function SettingsModal({
             {successMsg && (
               <div className="p-3 bg-green-950/20 border border-green-500/10 text-green-400 rounded-xl text-xs font-bold flex items-center space-x-1.5 justify-start">
                 <Check className="w-4 h-4 text-green-400 shrink-0 animate-bounce" />
-                <span>Configurations updated successfully!</span>
+                <span>configurations updated successfully!</span>
               </div>
             )}
 
@@ -352,7 +384,7 @@ export default function SettingsModal({
                 disabled={loading}
                 className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-650/30 text-white font-bold text-xs rounded-xl cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.99]"
               >
-                {loading ? "Registering profile configs..." : "Save Config Details"}
+                {loading ? "registering configs..." : "save profile configurations"}
               </button>
             </div>
           </form>

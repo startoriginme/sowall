@@ -161,7 +161,7 @@ export default function AccountModal({
         email: regEmail.trim(),
       });
 
-      const isVerifiedUser = ["kodewt", "mavebo", "kode", "jocko", "dil_doe"].includes(cleanUsername);
+      const isVerifiedUser = ["kodewt", "mavebo", "kode", "jocko", "dil_doe", "drop", "durtio"].includes(cleanUsername);
 
       const { error: profileError } = await supabase
         .from("profiles")

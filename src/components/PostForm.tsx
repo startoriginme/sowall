@@ -12,7 +12,7 @@ import SlidingCaptcha from "./SlidingCaptcha";
 
 interface PostFormProps {
   currentUser: UserSessionData | null;
-  onPostCreated: () => void;
+  onPostCreated: (newPost?: Post) => void;
   onClose?: () => void;
   repostOfPost?: Post | null;
   onClearRepost?: () => void;
@@ -205,8 +205,25 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
       setPollOptions(["", ""]);
       setShowPollCreator(false);
       setPostCaptchaPassed(false);
+      // Enriched post data block for instant visual append
+      const enrichedPost: Post = {
+        ...postData,
+        profiles: user_id === currentUser?.id ? {
+          id: currentUser.id,
+          username: currentUser.username,
+          display_name: currentUser.display_name,
+          avatar_url: currentUser.avatar_url,
+          bio: currentUser.bio,
+          is_verified: currentUser.is_verified,
+          created_at: currentUser.created_at || new Date().toISOString(),
+          clan_emoji: currentUser.clan_emoji
+        } : null,
+        comments: [],
+        post_likes: []
+      };
+
       if (onClearRepost) onClearRepost();
-      onPostCreated();
+      onPostCreated(enrichedPost);
       if (onClose) onClose();
       
     } catch (err: any) {

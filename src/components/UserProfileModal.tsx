@@ -223,22 +223,20 @@ export default function UserProfileModal({
                       className="w-20 h-20 rounded-2xl bg-slate-950 border-2 border-purple-500/40 p-1 object-cover shrink-0"
                     />
                      <div className="flex-1 text-center sm:text-left space-y-1">
-                      <div className="flex items-center justify-center sm:justify-start space-x-1.5 flex-wrap">
+                      <div className="flex items-center justify-center sm:justify-start space-x-2.5 flex-wrap">
                         <h2 className="text-2xl font-bold font-display text-white">
                           {profileData.display_name || username}
                         </h2>
-                        {(profileData.is_verified ||
-                          profileData.username.toLowerCase() === "mavebo" ||
-                          profileData.username.toLowerCase() === "kode" ||
-                          profileData.username.toLowerCase() === "kodewt" ||
-                          profileData.username.toLowerCase() === "jocko" ||
-                          profileData.username.toLowerCase() === "dil_doe"
-                        ) && (
-                          <BadgeCheck className="w-5 h-5 text-purple-400 shrink-0 fill-purple-950 inline-block" />
-                        )}
-                        {(profileData as any).clan_emoji && (
-                          <span className="text-xl shrink-0 inline-block ml-1" title="Clan Emoji">{(profileData as any).clan_emoji}</span>
-                        )}
+                        <div className="flex items-center gap-2 shrink-0 ml-1">
+                          {(profileData.is_verified ||
+                            ["mavebo", "kode", "kodewt", "jocko", "dil_doe", "drop", "durtio"].includes(profileData.username.toLowerCase())
+                          ) && (
+                            <BadgeCheck className="w-5 h-5 text-purple-400 shrink-0 fill-purple-950" />
+                          )}
+                          {(profileData as any).clan_emoji && (
+                            <span className="text-xl shrink-0" title="Clan Emoji">{(profileData as any).clan_emoji}</span>
+                          )}
+                        </div>
                       </div>
                       <p className="text-slate-400 text-sm">@{profileData.username}</p>
 

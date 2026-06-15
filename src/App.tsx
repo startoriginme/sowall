@@ -8,34 +8,43 @@ import { motion, AnimatePresence } from "motion/react";
 import { 
   HelpCircle, User, Shield, ShieldCheck, Search, RefreshCw, 
   Plus, FileText, Users, BadgeCheck, Settings, LogOut, 
-  ChevronLeft, Heart, Repeat, Check, Moon, Sun, Upload, Mail, Lock, BookOpen, X, Sparkles
+  ChevronLeft, Heart, Repeat, Check, Moon, Sun, Upload, Mail, Lock, BookOpen, X, Sparkles, Trophy, Award
 } from "lucide-react";
 import { Post, UserSessionData } from "./types";
 import AboutModal from "./components/AboutModal";
 import CreatePostModal from "./components/CreatePostModal";
 import PostCard from "./components/PostCard";
 import SlidingCaptcha from "./components/SlidingCaptcha";
-import SettingsModal from "./components/SettingsModal";
+import SettingsModal, { STARTORIGIN_CLANS } from "./components/SettingsModal";
 import GhostLoader from "./components/GhostLoader";
+import ClanSelectorModal from "./components/ClanSelectorModal";
 import { supabase } from "./lib/supabase";
-
-// Список всех доступных кланов
-const CLAN_EMOJIS = [
-  "🐉", "🐲", "🦁", "🦅", "🐺", "🐻", "🗡️", "🛡️", "⚔️", "🏰", "🔮", "🧙", 
-  "👑", "💎", "🌋", "🤖", "👾", "💻", "⌨️", "🖥️", "📡", "🛸", "🔫", "🎮", 
-  "🧬", "⚡", "🔋", "🌐", "💊", "🎛️", "🎨", "🖌️", "✏️", "🎭", "🎬", "🎧", 
-  "🎵", "🎸", "🥁", "📸", "🎞️", "🖼️", "✂️", "🧵", "🪡", "🏆", "🥇", "⚽", 
-  "🏀", "🎾", "🏈", "⚡", "💪", "🥊", "🚴", "🏋️", "🧗", "🏊", "⛷️", "🏅", 
-  "🌿", "🍃", "🌸", "🌻", "🍄", "🪶", "🐾", "🕊️", "🐝", "🦋", "🌙", "✨", 
-  "⭐", "☕", "🍜"
-];
 
 export default function App() {
   const [activeView, setActiveView] = useState<"feed" | "profile" | "user-profile" | "settings" | "post-detail" | "admin">("feed");
+  const feedScrollRef = useRef(0);
   const [activeUsername, setActiveUsername] = useState<string | null>(null);
   const [activePostId, setActivePostId] = useState<string | null>(null);
 
+  // Purple Pixel Entry Loader Animation
+  const [showPixelLoader, setShowPixelLoader] = useState(true);
+
+  // Pagination states
+  const [postsPage, setPostsPage] = useState(0);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const [profilePostsPage, setProfilePostsPage] = useState(0);
+  const [hasMoreProfilePosts, setHasMoreProfilePosts] = useState(true);
+  const [loadingMoreProfilePosts, setLoadingMoreProfilePosts] = useState(false);
+
+  // Copy discord feedback
+  const [discordCopied, setDiscordCopied] = useState(false);
+
   const [posts, setPosts] = useState<Post[]>([]);
+  const [profilePosts, setProfilePosts] = useState<Post[]>([]);
+  const [loadingProfilePosts, setLoadingProfilePosts] = useState(false);
+  const [isClanSelectorOpen, setIsClanSelectorOpen] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [postsError, setPostsError] = useState<string | null>(null);
 
@@ -44,12 +53,60 @@ export default function App() {
   const [searchMode, setSearchMode] = useState<"posts" | "users">("posts");
   const [matchingUsers, setMatchingUsers] = useState<any[]>([]);
   const [loadingUsersSearch, setLoadingUsersSearch] = useState(false);
+  const [officialUsers, setOfficialUsers] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchOfficialUsers = async () => {
+      try {
+        const usernames = ["kodewt", "dil_doe", "drop", "durtio"];
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .in("username", usernames);
+        
+        if (!error && data) {
+          // Keep the ordering kodewt, dil_doe, drop, durtio
+          const sorted = usernames.map(un => {
+            const found = data.find(p => p.username?.toLowerCase() === un.toLowerCase());
+            if (found) return found;
+            return {
+              id: "fallback_" + un,
+              username: un,
+              display_name: un,
+              avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(un)}`,
+              bio: JSON.stringify({ text: "Official startorigin member" }),
+              is_verified: true
+            };
+          });
+          setOfficialUsers(sorted);
+        } else {
+          setOfficialUsers(usernames.map(un => ({
+            id: "fallback_" + un,
+            username: un,
+            display_name: un,
+            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(un)}`,
+            bio: JSON.stringify({ text: "Official startorigin member" }),
+            is_verified: true
+          })));
+        }
+      } catch (err) {
+        console.error("Error loading official users:", err);
+      }
+    };
+    fetchOfficialUsers();
+  }, []);
 
   // Authenticated user state
   const [currentUser, setCurrentUser] = useState<UserSessionData | null>(null);
 
-  // Active theme is strictly dark purple
+  // Active theme state (always forced to dark theme)
   const theme = "dark";
+  const setTheme = () => {};
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", "dark");
+    localStorage.setItem("theme", "dark");
+  }, []);
 
   // Release history popover toggler
   const [showVersions, setShowVersions] = useState(false);
@@ -58,14 +115,28 @@ export default function App() {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [feedTab, setFeedTab] = useState<"global" | "clan">("global");
   const [repostOfPost, setRepostOfPost] = useState<Post | null>(null);
-  
-  // Clan modal state
-  const [showClanModal, setShowClanModal] = useState(false);
 
   const directAvatarInputRef = useRef<HTMLInputElement>(null);
   const directBannerInputRef = useRef<HTMLInputElement>(null);
+  const [loaderElement, setLoaderElement] = useState<HTMLDivElement | null>(null);
+  const [profileLoaderElement, setProfileLoaderElement] = useState<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!loaderElement || !hasMorePosts || loadingPosts || loadingMore || activeView !== "feed") return;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        fetchPosts(postsPage + 1, true);
+      }
+    }, { threshold: 0.1 });
+
+    observer.observe(loaderElement);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [loaderElement, postsPage, hasMorePosts, loadingPosts, loadingMore, activeView]);
 
   // Admin states
   const [adminPassword, setAdminPassword] = useState<string>("");
@@ -180,6 +251,22 @@ export default function App() {
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profilePageData, setProfilePageData] = useState<any | null>(null);
 
+  useEffect(() => {
+    if (!profileLoaderElement || !hasMoreProfilePosts || loadingProfilePosts || loadingMoreProfilePosts || !profilePageData?.id) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        fetchProfilePosts(profilePageData.id, profilePostsPage + 1, true);
+      }
+    }, { threshold: 0.1 });
+
+    observer.observe(profileLoaderElement);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [profileLoaderElement, profilePostsPage, hasMoreProfilePosts, loadingProfilePosts, loadingMoreProfilePosts, profilePageData?.id]);
+
   const [authTab, setAuthTab] = useState<"login" | "register">("login");
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -200,6 +287,7 @@ export default function App() {
   const [editDiscord, setEditDiscord] = useState("");
   const [editAvatarUrl, setEditAvatarUrl] = useState("");
   const [editBannerUrl, setEditBannerUrl] = useState("");
+  const [editClanEmoji, setEditClanEmoji] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSuccess, setEditSuccess] = useState(false);
@@ -218,6 +306,8 @@ export default function App() {
       
       let cleanMyBio = "";
       let myBanner = "";
+      let isEventDone = false;
+      let isIconHidden = false;
       try {
         const parsed = JSON.parse(currentUser.bio || "{}");
         if (typeof parsed === "object" && parsed !== null) {
@@ -234,6 +324,7 @@ export default function App() {
       setEditBannerUrl(myBanner);
       setEditDiscord(currentUser.discord || "");
       setEditAvatarUrl(currentUser.avatar_url || "");
+      setEditClanEmoji(currentUser.clan_emoji || "");
     }
   }, [currentUser]);
 
@@ -247,6 +338,11 @@ export default function App() {
       setIsSettingsOpen(true);
       return;
     }
+
+    if (activeView === "feed") {
+      feedScrollRef.current = window.scrollY;
+    }
+
     let path = "/";
     if (view === "profile") path = "/profile";
     else if (view === "admin") path = "/admin";
@@ -255,6 +351,17 @@ export default function App() {
 
     window.history.pushState(null, "", path);
     setActiveView(view);
+
+    if (view === "feed") {
+      setTimeout(() => {
+        window.scrollTo({
+          top: feedScrollRef.current,
+          behavior: "auto"
+        });
+      }, 30);
+    } else {
+      window.scrollTo(0, 0);
+    }
     
     if (view === "profile" && currentUser) {
       setActiveUsername(currentUser.username);
@@ -344,6 +451,106 @@ export default function App() {
     }
   };
 
+  const handleUpdateClanEmoji = async (newEmoji: string | null) => {
+    if (!currentUser) return;
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ clan_emoji: newEmoji })
+        .eq("id", currentUser.id);
+      if (error) throw error;
+
+      // Update currentUser state instantly
+      const updatedUser = {
+        ...currentUser,
+        clan_emoji: newEmoji || undefined
+      };
+      setCurrentUser(updatedUser);
+
+      // Scroll-sync update active page profile data too
+      if (profilePageData && profilePageData.id === currentUser.id) {
+        setProfilePageData({
+          ...profilePageData,
+          clan_emoji: newEmoji
+        });
+      }
+
+      // Re-trigger feed sync
+      fetchPosts(0, false);
+    } catch (e) {
+      console.error("Failed to update clan alliance:", e);
+    }
+  };
+
+  const fetchProfilePosts = async (userId: string, page = 0, isAppend = false) => {
+    try {
+      if (page === 0) {
+        setLoadingProfilePosts(true);
+        setProfilePostsPage(0);
+        setHasMoreProfilePosts(true);
+      } else {
+        setLoadingMoreProfilePosts(true);
+      }
+
+      const from = page * 10;
+      const to = from + 9;
+
+      const { data: postsData, error: postsError } = await supabase
+        .from("posts")
+        .select(`
+          *,
+          profiles:profiles!posts_user_id_fkey (*),
+          comments:comments (
+            *,
+            profiles:profiles!comments_user_id_fkey (*)
+          ),
+          post_likes (*)
+        `)
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (postsError) throw postsError;
+
+      const enrichedPosts = (postsData || []).map((post: any) => {
+        const comments = post.comments || [];
+        comments.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        return {
+          ...post,
+          comments
+        };
+      });
+
+      if (isAppend) {
+        setProfilePosts(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const filteredNew = enrichedPosts.filter(p => !existingIds.has(p.id));
+          return [...prev, ...filteredNew];
+        });
+      } else {
+        setProfilePosts(enrichedPosts);
+      }
+
+      setHasMoreProfilePosts(enrichedPosts.length === 10);
+      setProfilePostsPage(page);
+    } catch (e) {
+      console.error("Error fetching profile posts:", e);
+    } finally {
+      setLoadingProfilePosts(false);
+      setLoadingMoreProfilePosts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (profilePageData?.id) {
+      fetchProfilePosts(profilePageData.id, 0, false);
+    } else {
+      setProfilePosts([]);
+      setProfilePostsPage(0);
+      setHasMoreProfilePosts(false);
+    }
+  }, [profilePageData?.id]);
+
   const fetchUserProfileData = async (username: string) => {
     try {
       setProfileLoading(true);
@@ -356,7 +563,9 @@ export default function App() {
           setProfilePageData(JSON.parse(cached));
           setProfileLoading(false);
         }
-      } catch (e) {}
+      } catch (e) {
+        localStorage.removeItem(cacheKey);
+      }
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
@@ -416,18 +625,29 @@ export default function App() {
     }
   };
 
-  const fetchPosts = async () => {
+  const fetchPosts = async (page: any = 0, isAppend = false) => {
+    const pageNum = typeof page === "number" ? page : 0;
+    const isAppendMode = typeof page === "number" ? isAppend : false;
     try {
-      setLoadingPosts(true);
-      setPostsError(null);
-      
-      try {
-        const cached = localStorage.getItem("cache_posts");
-        if (cached && posts.length === 0) {
-          setPosts(JSON.parse(cached));
-          setLoadingPosts(false);
+      if (pageNum === 0) {
+        setLoadingPosts(true);
+        setPostsPage(0);
+        setHasMorePosts(true);
+        try {
+          const cached = localStorage.getItem("cache_posts");
+          if (cached && posts.length === 0) {
+            setPosts(JSON.parse(cached));
+          }
+        } catch (e) {
+          localStorage.removeItem("cache_posts");
         }
-      } catch (e) {}
+      } else {
+        setLoadingMore(true);
+      }
+      
+      setPostsError(null);
+      const from = pageNum * 10;
+      const to = from + 9;
 
       const { data: postsData, error: postsError } = await supabase
         .from("posts")
@@ -441,7 +661,7 @@ export default function App() {
           post_likes (*)
         `)
         .order("created_at", { ascending: false })
-        .limit(100);
+        .range(from, to);
 
       if (postsError) throw postsError;
 
@@ -454,19 +674,38 @@ export default function App() {
         };
       });
 
-      setPosts(enrichedPosts);
-      try {
-        localStorage.setItem("cache_posts", JSON.stringify(enrichedPosts));
-      } catch (e) {}
+      if (isAppendMode) {
+        setPosts(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const filteredNew = enrichedPosts.filter(p => !existingIds.has(p.id));
+          return [...prev, ...filteredNew];
+        });
+      } else {
+        setPosts(enrichedPosts);
+        try {
+          localStorage.setItem("cache_posts", JSON.stringify(enrichedPosts));
+        } catch (e) {}
+      }
+
+      setHasMorePosts(enrichedPosts.length === 10);
+      setPostsPage(pageNum);
     } catch (err: any) {
       console.error("Direct db posts fetch error:", err);
-      if (!localStorage.getItem("cache_posts")) {
-        setPostsError("Network error while trying to retrieve feed directly from the database.");
+      if (pageNum === 0) {
+        setPostsError(`syncing issue: ${err.message || err || "cannot fetch posts"}`);
       }
     } finally {
       setLoadingPosts(false);
+      setLoadingMore(false);
     }
   };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowPixelLoader(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     let authSubscription: any = null;
@@ -626,7 +865,7 @@ export default function App() {
     return () => {
       window.removeEventListener("popstate", onPopstate);
     };
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (activeView === "profile" && currentUser?.username) {
@@ -791,7 +1030,7 @@ export default function App() {
         email: regEmail.trim(),
       });
 
-      const isVerifiedUser = ["kodewt", "mavebo", "kode", "jocko", "dil_doe"].includes(cleanUsername);
+      const isVerifiedUser = ["kodewt", "mavebo", "kode", "jocko", "dil_doe", "drop", "durtio"].includes(cleanUsername);
 
       const { error: profileError } = await supabase
         .from("profiles")
@@ -828,45 +1067,6 @@ export default function App() {
       }
     } finally {
       setRegLoading(false);
-    }
-  };
-
-  const handleUpdateClanEmoji = async (emoji: string | null) => {
-    if (!currentUser) return;
-    try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ clan_emoji: emoji })
-        .eq("id", currentUser.id);
-
-      if (error) throw error;
-
-      setCurrentUser({
-        ...currentUser,
-        clan_emoji: emoji
-      } as any);
-
-      if (profilePageData && profilePageData.id === currentUser.id) {
-        setProfilePageData({
-          ...profilePageData,
-          clan_emoji: emoji
-        });
-      }
-
-      const cacheKey = `cached_profile_${currentUser.username.toLowerCase()}`;
-      try {
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          parsed.clan_emoji = emoji;
-          localStorage.setItem(cacheKey, JSON.stringify(parsed));
-        }
-      } catch (ce) {}
-
-      setShowClanModal(false);
-    } catch (e) {
-      console.error("Failed to update clan emoji:", e);
-      alert("Failed to update clan emoji.");
     }
   };
 
@@ -978,7 +1178,18 @@ export default function App() {
         }
       }
 
+      let existingBio: any = {};
+      try {
+        existingBio = JSON.parse(currentUser.bio || "{}");
+        if (typeof existingBio !== "object" || existingBio === null) {
+          existingBio = {};
+        }
+      } catch (e) {
+        existingBio = {};
+      }
+
       const serializedBio = JSON.stringify({
+        ...existingBio,
         text: editBio.trim(),
         banner_url: editBannerUrl.trim(),
       });
@@ -991,6 +1202,7 @@ export default function App() {
           discord: editDiscord.trim(),
           avatar_url: editAvatarUrl.trim() || null,
           username: cleanUsername,
+          clan_emoji: editClanEmoji || null,
         })
         .eq("id", currentUser.id);
 
@@ -1015,6 +1227,9 @@ export default function App() {
           clan_emoji: freshProfile.clan_emoji,
         };
         setCurrentUser(updatedUser);
+        if (profilePageData && profilePageData.id === freshProfile.id) {
+          setProfilePageData(freshProfile);
+        }
       }
 
       setTimeout(() => {
@@ -1070,15 +1285,6 @@ export default function App() {
   };
 
   const filteredPosts = posts.filter((post) => {
-    if (feedTab === "clan") {
-      if (!currentUser || !currentUser.clan_emoji) {
-        return false;
-      }
-      const postClan = (post.profiles as any)?.clan_emoji;
-      if (postClan !== currentUser.clan_emoji) {
-        return false;
-      }
-    }
 
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -1093,17 +1299,15 @@ export default function App() {
     return contentMatches || authorMatches || profileMatches;
   });
 
-  const profileUserPosts = posts.filter((post) => {
-    return profilePageData && post.user_id === profilePageData.id;
-  });
+  const profileUserPosts = profilePosts;
 
-  const isDark = true;
-  const glassClass = "liquid-glass-dark";
-  const bgClass = "bg-[#0c0a15] text-[#f1eefc]";
-  const textClass = "text-slate-300";
-  const textMuted = "text-zinc-500";
-  const hoverClass = "hover:bg-purple-500/5";
-  const borderClass = "border-transparent";
+  const isDark = theme === "dark";
+  const glassClass = isDark ? "liquid-glass-dark" : "bg-white border border-zinc-200/80 shadow-sm";
+  const bgClass = isDark ? "bg-[#0c0a15] text-[#f1eefc]" : "bg-white text-zinc-900";
+  const textClass = isDark ? "text-slate-300" : "text-zinc-800";
+  const textMuted = isDark ? "text-zinc-500" : "text-zinc-400";
+  const hoverClass = isDark ? "hover:bg-purple-500/5" : "hover:bg-zinc-100";
+  const borderClass = isDark ? "border-transparent" : "border-zinc-200";
 
   let parsedMyBioText = "";
   let parsedMyBannerUrl = "";
@@ -1124,7 +1328,7 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${bgClass} font-sans selection:bg-purple-500/20 flex flex-col md:flex-row transition-colors duration-300`}>
-      
+
       {/* Release history modal */}
       <AnimatePresence>
         {showVersions && (
@@ -1139,13 +1343,20 @@ export default function App() {
               <h4 className="text-sm font-bold tracking-tight mb-4 flex items-center">
                 <span>Release Version Logs</span>
               </h4>
-              <div className="space-y-4 text-xs leading-relaxed">
+              <div className="space-y-4 text-xs leading-relaxed max-h-72 overflow-y-auto pr-1">
                 <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
-                  <p className="font-bold text-purple-400">v1.2 (current)</p>
+                  <p className="font-bold text-purple-400">v1.2.1 (current)</p>
                   <ul className={`mt-1.5 list-disc list-inside space-y-0.5 ${textClass}`}>
+                    <li>Fixed optimization problems</li>
+                    <li>Fixed bugs in settings</li>
+                    <li>Minor improvements</li>
+                  </ul>
+                </div>
+                <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
+                  <p className="font-bold text-zinc-400">v1.2</p>
+                  <ul className={`mt-1.5 list-disc list-inside space-y-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                     <li>Fixed security problems</li>
                     <li>Spam protection</li>
-                    <li>Emoji clans</li>
                     <li>Banners</li>
                     <li>Design update</li>
                     <li>Minor improvements</li>
@@ -1154,10 +1365,19 @@ export default function App() {
                 <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
                   <p className="font-bold text-zinc-400">v1.1</p>
                   <ul className={`mt-1.5 list-disc list-inside space-y-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
-                    <li>Profiles added</li>
-                    <li>Polls and attachments</li>
-                    <li>Design update</li>
-                    <li>Minor improvements</li>
+                    <li>Added user groups / clans</li>
+                    <li>Introduced clan emoji selectors</li>
+                    <li>Enhanced feed loading system</li>
+                    <li>Improved interface responsiveness</li>
+                  </ul>
+                </div>
+                <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
+                  <p className="font-bold text-zinc-400">v1.0</p>
+                  <ul className={`mt-1.5 list-disc list-inside space-y-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                    <li>Official platform release</li>
+                    <li>Real-time broadcasting / posts feed</li>
+                    <li>Anonymous posting & verified badges</li>
+                    <li>Interactive sliding captcha</li>
                   </ul>
                 </div>
               </div>
@@ -1186,7 +1406,7 @@ export default function App() {
                 className="w-8 h-8 rounded-lg shrink-0 object-contain group-hover:scale-105 transition-transform"
               />
               <h1 className="text-lg font-black tracking-tight">
-                <span className="text-purple-400 font-extrabold">Start</span>
+                <span className="text-purple-400 font-extrabold">start</span>
                 <span className="text-white font-bold opacity-90">origin</span>
               </h1>
             </button>
@@ -1194,7 +1414,7 @@ export default function App() {
               onClick={() => setShowVersions(true)}
               className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 cursor-pointer hover:bg-purple-500/25 transition-all"
             >
-              v1.2
+              v1.2.1
             </button>
           </div>
 
@@ -1208,7 +1428,26 @@ export default function App() {
                     className="w-9 h-9 rounded-full object-cover border border-purple-500/25 bg-purple-500/5 shrink-0"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="font-bold text-xs truncate text-white">{currentUser.display_name || currentUser.username}</p>
+                    <p className="font-bold text-xs text-white truncate flex items-center gap-2.5">
+                      <span>{currentUser.display_name || currentUser.username}</span>
+                      <div className="flex items-center gap-2 shrink-0 ml-1">
+                        {(currentUser.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe", "drop", "durtio"].includes(currentUser.username?.toLowerCase() || "")) && (
+                          <BadgeCheck className="w-3.5 h-3.5 text-purple-400 fill-zinc-950 shrink-0" />
+                        )}
+                        {currentUser.clan_emoji && (
+                          <span className="text-xs shrink-0" title="Clan">{currentUser.clan_emoji}</span>
+                        )}
+                      </div>
+                      {(() => {
+                        try {
+                          const parsed = JSON.parse(currentUser.bio || "{}");
+                          if (parsed && typeof parsed === "object" && parsed.event_completed && !parsed.event_icon_hidden) {
+                            return <span className="text-xs shrink-0 inline-block ml-0.5" title="Events Completed Badge">🎓</span>;
+                          }
+                        } catch {}
+                        return null;
+                      })()}
+                    </p>
                     <p className="text-[10px] text-purple-400 font-mono truncate">@{currentUser.username}</p>
                   </div>
                 </div>
@@ -1218,25 +1457,25 @@ export default function App() {
                     className="text-[10px] font-bold text-zinc-500 hover:text-purple-400 transition-colors cursor-pointer flex items-center space-x-1"
                   >
                     <Settings className="w-3 h-3" />
-                    <span>Settings</span>
+                    <span>settings</span>
                   </button>
                   <button 
                     onClick={handleLogout}
                     className="text-[10px] font-bold text-red-500 hover:text-red-600 transition-colors cursor-pointer flex items-center space-x-1"
                   >
                     <LogOut className="w-3 h-3" />
-                    <span>Log Out</span>
+                    <span>log out</span>
                   </button>
                 </div>
               </div>
             ) : (
               <div className="text-center py-1">
-                <p className="text-xs font-semibold text-zinc-500">Welcome Guest</p>
+                <p className="text-xs font-semibold text-zinc-500">welcome guest</p>
                 <button 
                   onClick={() => navigateTo("profile")}
                   className="mt-2 w-full py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-lg cursor-pointer transition-colors shadow-sm"
                 >
-                  Join / Sign In
+                  join / sign in
                 </button>
               </div>
             )}
@@ -1245,34 +1484,34 @@ export default function App() {
           <nav className="space-y-1">
             <button 
               onClick={() => navigateTo("feed")}
-              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl font-bold text-xs tracking-wide uppercase transition-all cursor-pointer ${
+              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl font-bold text-xs tracking-wide transition-all cursor-pointer ${
                 activeView === "feed" 
                   ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" 
                   : `text-zinc-500 ${hoverClass}`
               }`}
             >
               <FileText className="w-4 h-4" />
-              <span>Feed</span>
+              <span>feed</span>
             </button>
             
             <button 
               onClick={() => setIsPostModalOpen(true)}
-              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl font-bold text-xs tracking-wide uppercase transition-all cursor-pointer text-zinc-500 ${hoverClass}`}
+              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl font-bold text-xs tracking-wide transition-all cursor-pointer text-zinc-500 ${hoverClass}`}
             >
               <Plus className="w-4 h-4 text-purple-400" />
-              <span>Add Post</span>
+              <span>add post</span>
             </button>
 
             <button 
               onClick={() => navigateTo("profile")}
-              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl font-bold text-xs tracking-wide uppercase transition-all cursor-pointer ${
+              className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl font-bold text-xs tracking-wide transition-all cursor-pointer ${
                 activeView === "profile" 
                   ? "bg-purple-500/10 text-purple-400 border border-purple-500/20" 
                   : `text-zinc-500 ${hoverClass}`
               }`}
             >
               <User className="w-4 h-4" />
-              <span>Profile</span>
+              <span>profile</span>
             </button>
           </nav>
         </div>
@@ -1280,9 +1519,9 @@ export default function App() {
         <div className="space-y-4">
           <button 
             onClick={() => setIsAboutOpen(true)}
-            className="w-full text-center text-[10px] uppercase font-mono tracking-wider text-zinc-400 hover:text-purple-400 transition-colors pointer cursor-pointer border-t border-zinc-800/80 pt-4"
+            className="w-full text-center text-[10px] font-mono tracking-wider text-zinc-400 hover:text-purple-400 transition-colors pointer cursor-pointer border-t border-zinc-800/80 pt-4"
           >
-            About Application
+            about application
           </button>
         </div>
       </aside>
@@ -1299,7 +1538,7 @@ export default function App() {
             className="w-7 h-7 rounded-md shrink-0 object-contain"
           />
           <h1 className="text-base font-black tracking-tight flex items-center">
-            <span className="text-purple-400 font-extrabold">Start</span>
+            <span className="text-purple-400 font-extrabold">start</span>
             <span className="text-white font-bold opacity-90">origin</span>
           </h1>
         </button>
@@ -1309,7 +1548,7 @@ export default function App() {
             onClick={() => setShowVersions(true)}
             className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 cursor-pointer"
           >
-            v1.2
+            v1.2.1
           </button>
           {currentUser && (
             <button onClick={() => navigateTo("settings")} className="p-1.5 text-zinc-400 hover:text-purple-400">
@@ -1379,7 +1618,7 @@ export default function App() {
                     </div>
 
                     <button 
-                      onClick={fetchPosts}
+                      onClick={() => fetchPosts(0, false)}
                       disabled={loadingPosts}
                       className="p-1.5 rounded-lg border border-zinc-800 text-zinc-500 cursor-pointer hover:bg-purple-500/5 transition-colors"
                       title="Reload Broadcasts"
@@ -1389,39 +1628,77 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2 border-b border-zinc-805/60 dark:border-zinc-800/40 pb-3 justify-start animate-fade-in">
-                  <button
-                    onClick={() => setFeedTab("global")}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
-                      feedTab === "global"
-                        ? "bg-purple-600/20 border border-purple-500/35 text-purple-200"
-                        : "text-zinc-500 hover:text-white border border-transparent"
-                    }`}
-                  >
-                    <span>Global Feed</span>
-                  </button>
-                  <button
-                    onClick={() => setFeedTab("clan")}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 cursor-pointer flex items-center space-x-1.5 ${
-                      feedTab === "clan"
-                        ? "bg-purple-600/20 border border-purple-500/35 text-purple-200"
-                        : "text-zinc-500 hover:text-white border border-transparent"
-                    }`}
-                  >
-                    <span>My Clan</span>
-                    {currentUser?.clan_emoji && (
-                      <span className="bg-purple-900/40 px-1 py-0.2 rounded text-[11px] font-normal text-purple-200">{currentUser.clan_emoji}</span>
-                    )}
-                  </button>
-                </div>
 
                 {searchMode === "users" ? (
                   <div className="space-y-3">
                     {searchQuery.trim().length === 0 ? (
-                      <div className={`p-12 text-center rounded-2xl border ${borderClass} bg-[#121118]/45`}>
-                        <Search className="w-8 h-8 text-purple-500/40 mx-auto mb-2" />
-                        <p className="text-xs font-bold text-zinc-550 uppercase tracking-widest font-mono">User Directory</p>
-                        <p className={`text-[10px] mt-1 ${textMuted}`}>Type display names or handles to start searching.</p>
+                      <div className="space-y-4 animate-fade-in">
+                        <div className={`p-12 text-center rounded-2xl border ${borderClass} bg-[#121118]/45`}>
+                          <Search className="w-8 h-8 text-purple-500/40 mx-auto mb-2" />
+                          <p className="text-xs font-bold text-zinc-550 uppercase tracking-widest font-mono">User Directory</p>
+                          <p className={`text-[10px] mt-1 ${textMuted}`}>Type display names or handles to start searching, or select an official startup member below.</p>
+                        </div>
+
+                        {officialUsers.length > 0 && (
+                          <div className="space-y-3 pt-1">
+                            <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-purple-400 font-mono flex items-center gap-1.5 ml-1">
+                              <span>★ Official members</span>
+                            </h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {officialUsers.map((user) => {
+                                let bioText = "";
+                                try {
+                                  const parsed = JSON.parse(user.bio || "{}");
+                                  bioText = parsed.text || parsed.bio || "";
+                                } catch (e) {
+                                  bioText = user.bio || "";
+                                }
+                                return (
+                                  <div 
+                                    key={user.id} 
+                                    onClick={() => navigateTo("user-profile", { username: user.username })}
+                                    className={`p-4 rounded-2xl border ${borderClass} bg-zinc-950/20 hover:bg-[#121118]/45 flex items-center justify-between transition-all hover:border-purple-500/35 cursor-pointer`}
+                                  >
+                                    <div className="flex items-center space-x-3 min-w-0">
+                                      <div className="relative shrink-0">
+                                        <img 
+                                          src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.username)}`}
+                                          alt={user.username}
+                                          className="w-10 h-10 rounded-full object-cover border border-purple-500/10"
+                                        />
+                                        {(user.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe", "drop", "durtio"].includes(user.username.toLowerCase())) && (
+                                          <div className="absolute -bottom-0.5 -right-0.5 bg-[#0b0a0f] rounded-full p-[0.5px] shadow-sm">
+                                            <BadgeCheck className="w-3 h-3 text-purple-400 fill-zinc-950 shrink-0" />
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="flex items-center space-x-1.5 flex-wrap">
+                                          <button 
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              navigateTo("user-profile", { username: user.username });
+                                            }}
+                                            className="font-extrabold text-xs text-[#fafafa] hover:underline hover:text-purple-300 text-left truncate cursor-pointer"
+                                          >
+                                            {user.display_name || user.username}
+                                          </button>
+                                          {user.clan_emoji && (
+                                            <span className="text-xs shrink-0" title="Clan">{user.clan_emoji}</span>
+                                          )}
+                                        </div>
+                                        <p className="text-[9px] text-zinc-500 font-mono">@{user.username}</p>
+                                        {bioText && (
+                                          <p className="text-[10px] text-zinc-400 font-sans truncate mt-0.5 max-w-[150px]">{bioText}</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : loadingUsersSearch ? (
                       <div className="py-16 text-center space-y-2">
@@ -1443,34 +1720,42 @@ export default function App() {
                             bioText = user.bio || "";
                           }
                           return (
-                            <div key={user.id} className={`p-4 rounded-2xl border ${borderClass} flex items-center justify-between bg-zinc-950/40 hover:border-purple-500/20`}>
+                            <div 
+                              key={user.id} 
+                              onClick={() => navigateTo("user-profile", { username: user.username })}
+                              className={`p-4 rounded-2xl border ${borderClass} flex items-center justify-between bg-zinc-950/40 hover:border-purple-500/35 transition-all cursor-pointer`}
+                            >
                               <div className="flex items-center space-x-3.5 min-w-0">
-                                <img 
-                                  src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.username)}`}
-                                  alt={user.username}
-                                  className="w-10 h-10 rounded-full shrink-0 object-cover border border-zinc-200/40"
-                                />
+                                <div className="relative shrink-0">
+                                  <img 
+                                    src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.username)}`}
+                                    alt={user.username}
+                                    className="w-10 h-10 rounded-full object-cover border border-zinc-200/40"
+                                  />
+                                  {(user.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe", "drop", "durtio"].includes(user.username.toLowerCase())) && (
+                                    <div className="absolute -bottom-0.5 -right-0.5 bg-[#0b0a0f] rounded-full p-[0.5px] shadow-sm">
+                                      <BadgeCheck className="w-3 h-3 text-purple-400 fill-zinc-950 shrink-0" />
+                                    </div>
+                                  )}
+                                </div>
                                 <div className="min-w-0">
                                   <div className="flex items-center space-x-1.5">
                                     <button 
-                                      onClick={() => navigateTo("user-profile", { username: user.username })}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigateTo("user-profile", { username: user.username });
+                                      }}
                                       className="font-bold text-xs hover:underline text-left truncate hover:text-purple-400"
                                     >
                                       {user.display_name || user.username}
                                     </button>
-                                    {(user.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe"].includes(user.username.toLowerCase())) && (
-                                      <BadgeCheck className="w-3.5 h-3.5 text-purple-400 fill-purple-500/10 shrink-0" />
+                                    {user.clan_emoji && (
+                                      <span className="text-xs shrink-0" title="Clan">{user.clan_emoji}</span>
                                     )}
                                   </div>
                                   <p className="text-[10px] text-zinc-500 font-mono">@{user.username}</p>
                                 </div>
                               </div>
-                              <button 
-                                onClick={() => navigateTo("user-profile", { username: user.username })}
-                                className="px-3 py-1.5 rounded-lg border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-[10px] transition-all cursor-pointer"
-                              >
-                                View Page
-                              </button>
                             </div>
                           );
                         })}
@@ -1479,28 +1764,12 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {loadingPosts && posts.length === 0 ? (
+                    {loadingPosts ? (
                       <GhostLoader />
-                    ) : feedTab === "clan" && !currentUser ? (
-                      <div id="no-clan-logged-in" className={`p-16 text-center border border-zinc-800/80 rounded-2xl bg-[#121118]/30`}>
-                        <p className="text-xs text-zinc-400 font-medium">Please register or log in first to view clan broadcasts.</p>
-                      </div>
-                    ) : feedTab === "clan" && !currentUser?.clan_emoji ? (
-                      <div id="no-clan-emoji-set" className={`p-16 text-center border border-zinc-800/80 rounded-2xl bg-[#121118]/30 space-y-3`}>
-                        <p className="text-xs text-zinc-450 font-medium">You don't have an active clan. Go to your Profile, tap the <b>+</b> button near your name, and choose your clan emoji to get started!</p>
-                        <button
-                          onClick={() => navigateTo("profile")}
-                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl cursor-pointer transition-all"
-                        >
-                          Go to Profile
-                        </button>
-                      </div>
                     ) : filteredPosts.length === 0 ? (
                       <div className={`p-16 text-center border ${borderClass} rounded-2xl ${isDark ? 'bg-[#121118]/30' : 'bg-white'}`}>
                         <p className="text-xs text-zinc-400 font-medium">
-                          {feedTab === "clan" 
-                            ? "No posts found from your clan. Be the first to publish a broadcast!" 
-                            : "The public wall is completely vacant. Begin by adding a post!"}
+                          the public wall is completely vacant. begin by adding a post!
                         </p>
                       </div>
                     ) : (
@@ -1510,13 +1779,36 @@ export default function App() {
                             key={post.id}
                             post={post}
                             currentUser={currentUser}
-                            onPostUpdated={fetchPosts}
+                            onPostUpdated={(newPost) => {
+                              if (newPost) {
+                                setPosts(prev => prev.map(p => p.id === newPost.id ? newPost : p));
+                              } else {
+                                fetchPosts(0, false);
+                              }
+                            }}
                             onOpenUserProfile={(name) => navigateTo("user-profile", { username: name })}
                             onClickPost={(id) => navigateTo("post-detail", { postId: id })}
                             adminPassword={adminPassword}
                             onRepost={handleRepost}
                           />
                         ))}
+                        
+                        {/* infinite scroll pagination trigger */}
+                        <div ref={setLoaderElement} className={`flex justify-center items-center transition-all ${loadingMore ? 'py-8' : 'py-4 mt-2'}`}>
+                          {loadingMore && (
+                            <div className="flex items-center space-x-2.5 text-purple-400 text-xs font-mono bg-purple-950/25 px-4 py-2 rounded-full border border-purple-500/15 shadow-sm">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>retrieving next page transmissions...</span>
+                            </div>
+                          )}
+                          {!hasMorePosts && filteredPosts.length > 0 && (
+                            <div className="flex items-center space-x-2 text-[9px] text-zinc-500 font-mono uppercase tracking-widest opacity-80">
+                              <span className="h-[1px] w-8 bg-zinc-800/60"></span>
+                              <span>end of transmission history</span>
+                              <span className="h-[1px] w-8 bg-zinc-800/60"></span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1557,9 +1849,14 @@ export default function App() {
                   <PostCard 
                     post={activePost}
                     currentUser={currentUser}
-                    onPostUpdated={() => {
-                      fetchPosts();
-                      fetchSinglePost(activePost.id);
+                    onPostUpdated={(newPost) => {
+                      if (newPost) {
+                        setActivePost(newPost);
+                        setPosts(prev => prev.map(p => p.id === newPost.id ? newPost : p));
+                      } else {
+                        fetchPosts(0, false);
+                        fetchSinglePost(activePost.id);
+                      }
                     }}
                     onPostDeleted={() => navigateTo("feed")}
                     onOpenUserProfile={(name) => navigateTo("user-profile", { username: name })}
@@ -1583,18 +1880,18 @@ export default function App() {
                   <div className="space-y-4">
                     <div 
                       onClick={() => directBannerInputRef.current?.click()}
-                      className="relative h-32 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in cursor-pointer group"
+                      className="relative h-44 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in cursor-pointer group"
                       style={{ 
                         backgroundImage: parsedMyBannerUrl 
                           ? `url(${parsedMyBannerUrl})` 
                           : 'linear-gradient(to bottom right, #1c133a, #100820, #140626)' 
                       }}
-                      title="Click banner to upload custom image (No links!)"
+                      title="click banner to upload custom image (no links!)"
                     >
                       <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                         <span className="text-white text-xs font-bold font-sans flex items-center space-x-1 border border-white/20 bg-black/65 px-3 py-1.5 rounded-lg">
                           <Upload className="w-3.5 h-3.5" />
-                          <span>Upload Banner</span>
+                          <span>upload banner</span>
                         </span>
                       </div>
 
@@ -1606,9 +1903,9 @@ export default function App() {
                       )}
                       
                       <div className="absolute top-4 right-4 flex gap-1.5 z-10">
-                        <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] uppercase tracking-wider font-mono font-black text-purple-355 border border-purple-500/20 shadow-lg flex items-center gap-1">
+                        <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] tracking-wider font-mono font-black text-purple-355 border border-purple-500/20 shadow-lg flex items-center gap-1">
                           <span className="inline-block w-1.5 h-1.5 bg-green-400 rounded-full animate-ping" />
-                          <span>My Account</span>
+                          <span>my account</span>
                         </span>
                       </div>
                     </div>
@@ -1628,40 +1925,40 @@ export default function App() {
                       onChange={handleDirectBannerUpload}
                     />
 
-                    <div className="relative -mt-10 px-4 sm:px-6 pb-6 pt-2 rounded-2xl bg-[#0c0a15]/95 backdrop-blur-xl shadow-xl space-y-4">
+                    <div className="relative -mt-16 px-4 sm:px-6 pb-6 pt-2 rounded-2xl bg-[#0c0a15]/95 backdrop-blur-xl shadow-xl space-y-4">
                       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                         <div className="flex items-end space-x-4 animate-fade-in">
                           <div className="relative shrink-0">
                             <img 
                               src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username)}`}
                               alt={currentUser.username}
-                              className="w-20 h-20 rounded-2xl border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10 cursor-pointer hover:opacity-85 transition-all"
+                              className="w-20 h-20 rounded-full border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10 cursor-pointer hover:opacity-85 transition-all"
                               onClick={() => directAvatarInputRef.current?.click()}
-                              title="Click avatar to upload custom image (No links!)"
+                              title="click avatar to upload custom image (no links!)"
                             />
-                            {((currentUser.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe"].includes(currentUser.username.toLowerCase())) ) && (
+                            {((currentUser.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe", "drop", "durtio"].includes(currentUser.username.toLowerCase())) ) && (
                               <div className="absolute -bottom-1.5 -right-1.5 bg-black rounded-full p-0.5 border border-purple-500/30 shadow-lg">
-                                <BadgeCheck className="w-5 h-5 text-purple-400 fill-purple-950" />
+                                <BadgeCheck className="w-5 h-5 text-purple-400 fill-zinc-950" />
                               </div>
                             )}
                           </div>
                           
                           <div className="space-y-1 text-left relative">
-                            <div className="flex items-center space-x-2">
-                              <h3 className="font-extrabold text-[#fafafa] text-lg font-sans tracking-tight leading-none">
+                            <div className="flex items-center space-x-1.5 flex-wrap">
+                              <h3 className="font-extrabold text-[#fafafa] text-lg font-sans tracking-tight leading-none flex items-center gap-1.5">
                                 {currentUser.display_name || currentUser.username}
-                              </h3>
-
-                              <div className="relative inline-block ml-1">
+                                
                                 <button
-                                  type="button"
-                                  onClick={() => setShowClanModal(true)}
-                                  className="w-7 h-7 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-sm flex items-center justify-center cursor-pointer transition-all active:scale-95"
-                                  title={currentUser.clan_emoji ? "Change Clan Emoji" : "Add Clan Emoji (+)"}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsClanSelectorOpen(true);
+                                  }}
+                                  className="hover:scale-120 transition-transform cursor-pointer outline-none select-none text-sm shrink-0 ml-1"
+                                  title="Choose Clan Alliance"
                                 >
-                                  {currentUser.clan_emoji ? currentUser.clan_emoji : "+"}
+                                  {currentUser.clan_emoji || "🛡️"}
                                 </button>
-                              </div>
+                              </h3>
                             </div>
                             <p className="text-xs text-purple-400 font-mono">@{currentUser.username}</p>
                           </div>
@@ -1671,8 +1968,7 @@ export default function App() {
                           onClick={() => navigateTo("settings")}
                           className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0 self-start sm:self-auto"
                         >
-                          <Settings className="w-3.5 h-3.5" />
-                          <span>Edit Profile Settings</span>
+                          <span>edit profile settings</span>
                         </button>
                       </div>
 
@@ -1685,16 +1981,27 @@ export default function App() {
 
                         <div className="flex flex-wrap gap-2 pt-1 justify-start">
                           {currentUser.discord && (
-                            <div className="flex items-center space-x-2 text-[10px] text-purple-250 font-mono bg-[#5865F2]/10 border border-[#5865F2]/30 px-3 py-1.5 rounded-full shadow-inner">
+                            <div 
+                              onClick={() => {
+                                navigator.clipboard.writeText(currentUser.discord);
+                                setDiscordCopied(true);
+                                setTimeout(() => setDiscordCopied(false), 2000);
+                              }}
+                              className="flex items-center space-x-2 text-[10px] text-purple-250 font-mono bg-[#5865F2]/10 border border-[#5865F2]/30 px-3 py-1.5 rounded-full shadow-inner cursor-pointer hover:bg-[#5865F2]/20 transition-all select-none"
+                              title="click to copy discord handle"
+                            >
                               <span className="w-1.5 h-1.5 bg-[#5865F2] rounded-full animate-pulse" />
-                              <span className="font-bold uppercase opacity-80">Discord:</span>
+                              <span className="font-bold opacity-80">discord:</span>
                               <span className="text-[#8ab4f8] font-bold">{currentUser.discord}</span>
+                              <span className="text-[9px] text-purple-400 font-mono ml-0.5">
+                                {discordCopied ? "(copied!)" : "(copy)"}
+                              </span>
                             </div>
                           )}
 
                           <div className="flex items-center space-x-2 text-[10px] text-purple-300 font-mono bg-purple-950/20 border border-purple-500/10 px-3 py-1.5 rounded-full">
                             <FileText className="w-3.5 h-3.5 text-purple-400" />
-                            <span className="font-bold uppercase opacity-85">Posts:</span>
+                            <span className="opacity-85">posts:</span>
                             <span className="text-white font-bold">{profileUserPosts.length}</span>
                           </div>
                         </div>
@@ -1702,9 +2009,9 @@ export default function App() {
                     </div>
 
                     <div className="space-y-3">
-                      <h4 className="text-xs font-extrabold uppercase font-mono tracking-widest text-zinc-550">My Broadcast History</h4>
+                      <h4 className="text-xs font-extrabold font-mono tracking-wider text-zinc-500">posts</h4>
                       
-                      {profileLoading ? (
+                      {profileLoading || loadingProfilePosts ? (
                         <GhostLoader />
                       ) : profileUserPosts.length > 0 ? (
                         <div className="space-y-4">
@@ -1713,8 +2020,12 @@ export default function App() {
                               key={post.id}
                               post={post}
                               currentUser={currentUser}
-                              onPostUpdated={() => {
-                                fetchPosts();
+                              onPostUpdated={(newPost) => {
+                                if (newPost) {
+                                  setPosts(prev => prev.map(p => p.id === newPost.id ? newPost : p));
+                                } else {
+                                  fetchPosts(0, false);
+                                }
                               }}
                               onPostDeleted={() => {
                                 fetchPosts();
@@ -1729,6 +2040,18 @@ export default function App() {
                       ) : (
                         <div className={`p-12 text-center bg-transparent border ${borderClass} rounded-2xl`}>
                           <p className="text-xs text-zinc-500 font-medium">You haven't posted any wall broadcasts yet!</p>
+                        </div>
+                      )}
+
+                      {/* Profile infinite scroll pagination trigger */}
+                      {hasMoreProfilePosts && !loadingProfilePosts && profileUserPosts.length > 0 && (
+                        <div ref={setProfileLoaderElement} className={`flex justify-center items-center transition-all ${loadingMoreProfilePosts ? 'py-8' : 'py-4 mt-2'}`}>
+                          {loadingMoreProfilePosts && (
+                            <div className="flex items-center space-x-2.5 text-purple-400 text-xs font-mono bg-purple-950/25 px-4 py-2 rounded-full border border-purple-500/15 shadow-sm">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>loading previous profile broadcasts...</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1926,7 +2249,7 @@ export default function App() {
                 ) : profilePageData ? (
                   <div className="space-y-5 animate-fade-in">
                     <div 
-                      className="relative h-32 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in"
+                      className="relative h-44 rounded-2xl overflow-hidden bg-cover bg-center shadow-md animate-fade-in"
                       style={{ 
                         backgroundImage: profilePageData.banner_url 
                           ? `url(${profilePageData.banner_url})` 
@@ -1940,23 +2263,23 @@ export default function App() {
                         </>
                       )}
                       <div className="absolute top-4 right-4 flex gap-1.5 z-10">
-                        <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] uppercase tracking-wider font-mono font-black text-purple-355 border border-purple-500/20 shadow-lg flex items-center gap-1">
+                        <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] tracking-wider font-mono font-black text-purple-355 border border-purple-500/20 shadow-lg flex items-center gap-1">
                           <span className="inline-block w-1.5 h-1.5 bg-green-400 rounded-full animate-ping" />
-                          <span>Active Member</span>
+                          <span>active member</span>
                         </span>
                       </div>
                     </div>
 
-                    <div className="relative -mt-10 px-4 sm:px-6 pb-6 pt-2 rounded-2xl bg-[#0c0a15]/95 backdrop-blur-xl shadow-xl space-y-4">
+                    <div className="relative -mt-16 px-4 sm:px-6 pb-6 pt-2 rounded-2xl bg-[#0c0a15]/95 backdrop-blur-xl shadow-xl space-y-4">
                       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                         <div className="flex items-end space-x-4">
                           <div className="relative shrink-0">
                             <img 
                               src={profilePageData.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(profilePageData.username)}`}
                               alt={profilePageData.username}
-                              className="w-20 h-20 rounded-2xl border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10"
+                              className="w-20 h-20 rounded-full border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10"
                             />
-                            {((profilePageData.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe"].includes(profilePageData.username.toLowerCase())) ) && (
+                            {((profilePageData.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe", "drop", "durtio"].includes(profilePageData.username.toLowerCase())) ) && (
                               <div className="absolute -bottom-1.5 -right-1.5 bg-black rounded-full p-0.5 border border-purple-500/30 shadow-lg">
                                 <BadgeCheck className="w-5 h-5 text-purple-400 fill-purple-950" />
                               </div>
@@ -1964,54 +2287,85 @@ export default function App() {
                           </div>
                           
                           <div className="space-y-1 text-left">
-                            <div className="flex items-center space-x-2">
-                              <h3 className="font-extrabold text-[#fafafa] text-lg font-sans tracking-tight leading-none">
+                            <div className="flex items-center space-x-1.5 flex-wrap">
+                              <h3 className="font-extrabold text-[#fafafa] text-lg font-sans tracking-tight leading-none flex items-center gap-1.5">
                                 {profilePageData.display_name || profilePageData.username}
+                                
+                                {currentUser && currentUser.username.toLowerCase() === profilePageData.username.toLowerCase() ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setIsClanSelectorOpen(true);
+                                    }}
+                                    className="hover:scale-120 transition-transform cursor-pointer outline-none select-none text-sm shrink-0 ml-1"
+                                    title="Choose Clan Alliance"
+                                  >
+                                    {profilePageData.clan_emoji || "🛡️"}
+                                  </button>
+                                ) : (
+                                  profilePageData.clan_emoji && (
+                                    <span className="text-sm shrink-0 ml-1" title="Clan">{profilePageData.clan_emoji}</span>
+                                  )
+                                )}
                               </h3>
-                              {profilePageData.clan_emoji && (
-                                <span className="text-xl shrink-0 inline-block ml-1" title="Clan Emoji">
-                                  {profilePageData.clan_emoji}
-                                </span>
-                              )}
                             </div>
                             <p className="text-xs text-purple-400 font-mono">@{profilePageData.username}</p>
                           </div>
                         </div>
 
-                        {currentUser && currentUser.username.toLowerCase() === profilePageData.username.toLowerCase() ? (
+                        {currentUser && currentUser.username.toLowerCase() === profilePageData.username.toLowerCase() && (
                           <button 
                             onClick={() => navigateTo("settings")}
-                            className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0 self-start sm:self-auto animate-pulse"
+                            className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0 self-start sm:self-auto"
                           >
-                            Edit Profile Settings
+                            edit profile settings
                           </button>
-                        ) : currentUser && (
-                          <span className="text-[10px] uppercase font-mono tracking-wider text-purple-300/40 pointer-events-none self-start sm:self-auto flex items-center space-x-1.5 bg-purple-950/20 px-3 py-1.5 rounded-lg border border-purple-500/10">
-                            <Users className="w-3.5 h-3.5" />
-                            <span>Signed In</span>
-                          </span>
                         )}
                       </div>
 
                       <div className="pt-4 border-t border-zinc-800/65 space-y-3">
                         <div className="p-3.5 rounded-xl bg-black/45 border border-zinc-900/40 text-left">
                           <p className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-sans">
-                            {profilePageData.bio || "No description / biography details added yet."}
+                            {(() => {
+                              let displayPublicBio = "";
+                              try {
+                                const parsed = JSON.parse(profilePageData.bio || "{}");
+                                if (typeof parsed === "object" && parsed !== null) {
+                                  displayPublicBio = parsed.text || parsed.bio || "";
+                                } else {
+                                  displayPublicBio = profilePageData.bio || "";
+                                }
+                              } catch (e) {
+                                displayPublicBio = profilePageData.bio || "";
+                              }
+                              return displayPublicBio || "no description/biography details added yet.";
+                            })()}
                           </p>
                         </div>
 
                         <div className="flex flex-wrap gap-2 pt-1 justify-start">
                           {profilePageData.discord && (
-                            <div className="flex items-center space-x-2 text-[10px] text-purple-250 font-mono bg-[#5865F2]/10 border border-[#5865F2]/30 px-3 py-1.5 rounded-full shadow-inner">
+                            <div 
+                              onClick={() => {
+                                navigator.clipboard.writeText(profilePageData.discord);
+                                setDiscordCopied(true);
+                                setTimeout(() => setDiscordCopied(false), 2000);
+                              }}
+                              className="flex items-center space-x-2 text-[10px] text-purple-250 font-mono bg-[#5865F2]/10 border border-[#5865F2]/30 px-3 py-1.5 rounded-full shadow-inner cursor-pointer hover:bg-[#5865F2]/20 transition-all select-none"
+                              title="click to copy discord handle"
+                            >
                               <span className="w-1.5 h-1.5 bg-[#5865F2] rounded-full animate-pulse" />
-                              <span className="font-bold uppercase opacity-80">Discord:</span>
+                              <span className="font-bold opacity-80">discord:</span>
                               <span className="text-[#8ab4f8] font-bold">{profilePageData.discord}</span>
+                              <span className="text-[9px] text-purple-400 font-mono ml-0.5">
+                                {discordCopied ? "(copied!)" : "(copy)"}
+                              </span>
                             </div>
                           )}
 
                           <div className="flex items-center space-x-2 text-[10px] text-purple-300 font-mono bg-purple-950/20 border border-purple-500/10 px-3 py-1.5 rounded-full">
                             <FileText className="w-3.5 h-3.5 text-purple-400" />
-                            <span className="font-bold uppercase opacity-85">Posts:</span>
+                            <span className="opacity-85">posts:</span>
                             <span className="text-white font-bold">{profileUserPosts.length}</span>
                           </div>
                         </div>
@@ -2019,19 +2373,25 @@ export default function App() {
                     </div>
 
                     <div className="space-y-3.5">
-                      <h4 className="text-xs font-extrabold uppercase font-mono tracking-widest text-purple-400 text-left">
-                        Publications by @{profilePageData.username}
+                      <h4 className="text-xs font-semibold font-mono tracking-wider text-purple-400 text-left">
+                        posts by @{profilePageData.username}
                       </h4>
                       
-                      {profileUserPosts.length > 0 ? (
+                      {profileLoading || loadingProfilePosts ? (
+                        <GhostLoader />
+                      ) : profileUserPosts.length > 0 ? (
                         <div className="space-y-4">
                           {profileUserPosts.map((post: Post) => (
                             <PostCard 
                               key={post.id}
                               post={post}
                               currentUser={currentUser}
-                              onPostUpdated={() => {
-                                fetchPosts();
+                              onPostUpdated={(newPost) => {
+                                if (newPost) {
+                                  setPosts(prev => prev.map(p => p.id === newPost.id ? newPost : p));
+                                } else {
+                                  fetchPosts(0, false);
+                                }
                               }}
                               onPostDeleted={() => {
                                 fetchPosts();
@@ -2046,6 +2406,18 @@ export default function App() {
                       ) : (
                         <div className={`p-12 text-center border ${borderClass} rounded-2xl`}>
                           <p className="text-xs text-zinc-400">This account hasn't broadcasted any posts yet.</p>
+                        </div>
+                      )}
+
+                      {/* Profile infinite scroll pagination trigger */}
+                      {hasMoreProfilePosts && !loadingProfilePosts && profileUserPosts.length > 0 && (
+                        <div ref={setProfileLoaderElement} className={`flex justify-center items-center transition-all ${loadingMoreProfilePosts ? 'py-8' : 'py-4 mt-2'}`}>
+                          {loadingMoreProfilePosts && (
+                            <div className="flex items-center space-x-2.5 text-purple-400 text-xs font-mono bg-purple-950/25 px-4 py-2 rounded-full border border-purple-500/15 shadow-sm">
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>loading previous profile broadcasts...</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2196,6 +2568,8 @@ export default function App() {
                           <span>{editBio.length} / 250</span>
                         </div>
                       </div>
+
+                      {/* Clan Selector Grid */}
 
                       {editError && (
                         <div className="p-3 bg-red-500/5 border border-red-500/10 text-red-500 rounded-xl text-xs font-medium">
@@ -2613,7 +2987,7 @@ export default function App() {
           className={`flex flex-col items-center space-y-1 cursor-pointer outline-none ${activeView === "feed" ? "text-purple-400" : "text-zinc-400"}`}
         >
           <FileText className="w-5 h-5" />
-          <span className="text-[9px] font-bold tracking-wider uppercase">Feed</span>
+          <span className="text-[9px] font-bold tracking-wider">feed</span>
         </button>
 
         <button 
@@ -2639,7 +3013,7 @@ export default function App() {
           ) : (
             <User className="w-5 h-5" />
           )}
-          <span className="text-[9px] font-bold tracking-wider uppercase">Profile</span>
+          <span className="text-[9px] font-bold tracking-wider">profile</span>
         </button>
       </div>
 
@@ -2658,6 +3032,8 @@ export default function App() {
             fetchUserProfileData(updatedUser.username);
           }
         }}
+        theme={theme}
+        setTheme={setTheme}
       />
 
       {/* Create Post Modal */}
@@ -2668,84 +3044,24 @@ export default function App() {
           setRepostOfPost(null);
         }}
         currentUser={currentUser}
-        onPostCreated={fetchPosts}
+        onPostCreated={(newPost) => {
+          if (newPost) {
+            setPosts(prev => [newPost, ...prev]);
+          } else {
+            fetchPosts(0, false);
+          }
+        }}
         repostOfPost={repostOfPost}
         onClearRepost={() => setRepostOfPost(null)}
       />
 
-      {/* Clan Emoji Modal - прямо здесь, без отдельного компонента */}
-      <AnimatePresence>
-        {showClanModal && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              transition={{ type: "spring", duration: 0.4 }}
-              className="bg-[#0f0f14] border border-slate-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl shadow-purple-950/30"
-            >
-              <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-4 bg-gradient-to-r from-purple-950/20 to-transparent">
-                <div className="flex items-center space-x-2">
-                  <Sparkles className="w-4 h-4 text-purple-400" />
-                  <span className="text-sm font-bold tracking-wide text-purple-400 font-mono uppercase">
-                    Choose Clan Emblem
-                  </span>
-                </div>
-                <button
-                  onClick={() => setShowClanModal(false)}
-                  className="text-slate-400 hover:text-white transition-colors bg-slate-800/50 p-1.5 rounded-lg border border-slate-700 cursor-pointer hover:bg-slate-700"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {currentUser?.clan_emoji && (
-                <div className="mx-5 mt-4 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-between">
-                  <span className="text-xs text-slate-300 font-mono">Current Clan Emoji:</span>
-                  <div className="flex items-center space-x-3">
-                    <span className="text-3xl">{currentUser.clan_emoji}</span>
-                    <button
-                      onClick={() => handleUpdateClanEmoji(null)}
-                      className="px-2.5 py-1 text-[10px] font-bold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 rounded-lg border border-red-500/20 transition-all"
-                    >
-                      Leave Clan
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className="p-5">
-                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold font-mono mb-3">
-                  Select your faction symbol
-                </p>
-                <div className="grid grid-cols-7 gap-2 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
-                  {CLAN_EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      onClick={() => {
-                        handleUpdateClanEmoji(emoji);
-                      }}
-                      className={`
-                        text-2xl p-2 rounded-xl transition-all duration-150
-                        hover:scale-110 hover:bg-purple-500/20 active:scale-95
-                        ${currentUser?.clan_emoji === emoji ? 'bg-purple-500/30 ring-1 ring-purple-400' : 'bg-slate-900/50 hover:bg-slate-800'}
-                      `}
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="border-t border-slate-800/80 px-5 py-3 bg-slate-950/30">
-                <p className="text-[9px] text-slate-500 text-center font-mono">
-                  Your clan emblem will appear next to your username
-                </p>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Clan Selector Modal */}
+      <ClanSelectorModal
+        isOpen={isClanSelectorOpen}
+        onClose={() => setIsClanSelectorOpen(false)}
+        currentClan={currentUser?.clan_emoji || null}
+        onSelectClan={handleUpdateClanEmoji}
+      />
 
     </div>
   );

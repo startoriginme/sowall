@@ -8,7 +8,7 @@ interface CreatePostModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: UserSessionData | null;
-  onPostCreated: () => void;
+  onPostCreated: (newPost?: Post) => void;
   repostOfPost?: Post | null;
   onClearRepost?: () => void;
 }

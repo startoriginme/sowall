@@ -5,7 +5,7 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { MessageSquare, Edit3, Trash2, Calendar, CornerDownRight, Check, X, ShieldAlert, BadgeCheck, Heart, BarChart3, Paperclip, FileText, Maximize2, Repeat } from "lucide-react";
+import { MessageSquare, Edit3, Trash2, Calendar, CornerDownRight, Check, X, ShieldAlert, BadgeCheck, ShieldCheck, Heart, BarChart3, Paperclip, FileText, Maximize2, Repeat } from "lucide-react";
 import { Post, Comment, UserSessionData } from "../types";
 import { formatRelativeTime } from "../utils";
 import { supabase } from "../lib/supabase";
@@ -15,16 +15,17 @@ interface PostCardProps {
   key?: any;
   post: Post;
   currentUser: UserSessionData | null;
-  onPostUpdated: () => void;
+  onPostUpdated: (updatedPost?: Post) => void;
   onPostDeleted?: () => void;
   onOpenUserProfile: (username: string) => void;
   onClickPost?: (id: string) => void;
   adminPassword?: string;
   onRepost?: (post: Post) => void;
+  onOpenPassport?: (userId: string) => void;
 }
 
 export default function PostCard({
-  post,
+  post: postProp,
   currentUser,
   onPostUpdated,
   onPostDeleted,
@@ -32,7 +33,16 @@ export default function PostCard({
   onClickPost,
   adminPassword,
   onRepost,
+  onOpenPassport,
 }: PostCardProps) {
+  const [pState, setPState] = useState<Post>(postProp);
+
+  React.useEffect(() => {
+    setPState(postProp);
+  }, [postProp]);
+
+  const post = pState;
+
   const [showComments, setShowComments] = useState(false);
   const [commentContent, setCommentContent] = useState("");
   const [isAnonymousComment, setIsAnonymousComment] = useState(true);
@@ -90,106 +100,120 @@ export default function PostCard({
   const hasLiked = post.post_likes ? post.post_likes.some((lik: any) => lik.liker_id === viewerLikerId || lik.user_id === viewerLikerId) : false;
 
   const handleToggleLike = async () => {
-    if (likeLoading) return;
     try {
-      setLikeLoading(true);
-      
+      // Optimistic computation
+      let newLikes = [...(post.post_likes || [])];
       if (hasLiked) {
-        // Unlike: delete the like
-        const { error } = await supabase
+        newLikes = newLikes.filter((lik: any) => lik.liker_id !== viewerLikerId && lik.user_id !== viewerLikerId);
+      } else {
+        newLikes.push({
+          id: "temp_" + Math.random().toString(36).substring(2, 9),
+          post_id: post.id,
+          liker_id: viewerLikerId,
+          user_id: currentUser?.id || null,
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      const updatedPost: Post = {
+        ...post,
+        post_likes: newLikes,
+      };
+
+      // Set state visually instantly!
+      setPState(updatedPost);
+      if (onPostUpdated) {
+        onPostUpdated(updatedPost);
+      }
+
+      // Supabase persistent update in background
+      if (hasLiked) {
+        await supabase
           .from("post_likes")
           .delete()
           .eq("post_id", post.id)
           .eq("liker_id", viewerLikerId);
-        
-        if (error) throw error;
       } else {
-        // Like: insert new like
-        const { error } = await supabase
+        await supabase
           .from("post_likes")
           .insert({
             post_id: post.id,
             liker_id: viewerLikerId,
             user_id: currentUser?.id || null,
           });
-        
-        if (error) throw error;
       }
-      
-      onPostUpdated();
     } catch (e) {
-      console.error("Failed to toggle like status", e);
-    } finally {
-      setLikeLoading(false);
+      console.error("Failed to toggle like status in background:", e);
     }
   };
 
   const handleVote = async (optionIndex: number) => {
-    if (voteLoading || !metadata?.poll) return;
+    if (!metadata?.poll) return;
     try {
-      setVoteLoading(true);
-      
-      // 1. Fetch the latest post content directly from Supabase to prevent overwriting other votes
-      const { data: latestPost, error: fetchError } = await supabase
+      // Prevent duplicate voting
+      if (metadata.poll.voters && metadata.poll.voters.includes(viewerLikerId)) {
+        alert("You've already voted in this poll.");
+        return;
+      }
+
+      // Optimistic computation
+      const updatedMetadata = JSON.parse(JSON.stringify(metadata));
+      if (!updatedMetadata.poll.voters) updatedMetadata.poll.voters = [];
+      if (!updatedMetadata.poll.votes) updatedMetadata.poll.votes = {};
+
+      const currentCount = updatedMetadata.poll.votes[optionIndex] || 0;
+      updatedMetadata.poll.votes[optionIndex] = currentCount + 1;
+      updatedMetadata.poll.voters.push(viewerLikerId);
+
+      const updatedContent = `${mainContent}${separator}${JSON.stringify(updatedMetadata)}`;
+
+      const updatedPost: Post = {
+        ...post,
+        content: updatedContent,
+      };
+
+      // Set state visually instantly!
+      setPState(updatedPost);
+      if (onPostUpdated) {
+        onPostUpdated(updatedPost);
+      }
+
+      // Background write
+      const { data: latestPost } = await supabase
         .from("posts")
         .select("content")
         .eq("id", post.id)
         .single();
-        
-      if (fetchError || !latestPost) {
-        throw new Error("Could not fetch the latest post data.");
-      }
-
-      const parts = latestPost.content.split(separator);
-      const postMainContent = parts[0];
+         
       let latestMetadata: any = {};
-      if (parts.length > 1) {
-        try {
-          latestMetadata = JSON.parse(parts[1]);
-        } catch (e) {
-          latestMetadata = {};
+      if (latestPost) {
+        const parts = latestPost.content.split(separator);
+        if (parts.length > 1) {
+          try {
+            latestMetadata = JSON.parse(parts[1]);
+          } catch (e) {
+            latestMetadata = {};
+          }
         }
       }
 
-      if (!latestMetadata.poll) {
-        throw new Error("This post does not contain a poll.");
+      if (!latestMetadata.poll) latestMetadata.poll = { voters: [], votes: {} };
+      if (!latestMetadata.poll.voters) latestMetadata.poll.voters = [];
+      if (!latestMetadata.poll.votes) latestMetadata.poll.votes = {};
+
+      if (!latestMetadata.poll.voters.includes(viewerLikerId)) {
+        const cnt = latestMetadata.poll.votes[optionIndex] || 0;
+        latestMetadata.poll.votes[optionIndex] = cnt + 1;
+        latestMetadata.poll.voters.push(viewerLikerId);
+
+        const mergedContent = `${mainContent}${separator}${JSON.stringify(latestMetadata)}`;
+        await supabase
+          .from("posts")
+          .update({ content: mergedContent })
+          .eq("id", post.id);
       }
-
-      // Initialize tracking arrays
-      if (!latestMetadata.poll.voters) {
-        latestMetadata.poll.voters = [];
-      }
-      if (!latestMetadata.poll.votes) {
-        latestMetadata.poll.votes = {};
-      }
-
-      // Prevent duplicate voting
-      if (latestMetadata.poll.voters.includes(viewerLikerId)) {
-        throw new Error("You've already voted in this poll.");
-      }
-
-      // Increment selection index
-      const currentCount = latestMetadata.poll.votes[optionIndex] || 0;
-      latestMetadata.poll.votes[optionIndex] = currentCount + 1;
-      latestMetadata.poll.voters.push(viewerLikerId);
-
-      // Assembly back
-      const updatedContent = `${postMainContent}${separator}${JSON.stringify(latestMetadata)}`;
-
-      // Update the database record directly
-      const { error: updateError } = await supabase
-        .from("posts")
-        .update({ content: updatedContent })
-        .eq("id", post.id);
-
-      if (updateError) throw updateError;
-      
-      onPostUpdated();
     } catch (e: any) {
-      console.error("Failed to cast vote", e);
-      alert(e.message || "Cannot complete vote.");
-    } finally {
-      setVoteLoading(false);
+      console.error("Failed to cast vote in background:", e);
     }
   };
 
@@ -214,29 +238,34 @@ export default function PostCard({
     }
 
     try {
-      setEditLoading(true);
-      setEditError(null);
+      // Optimistic update
+      const updatedPost: Post = {
+        ...post,
+        content: finalContent,
+      };
       
-      const { error } = await supabase
+      setPState(updatedPost);
+      if (onPostUpdated) {
+        onPostUpdated(updatedPost);
+      }
+      
+      setIsEditing(false);
+
+      // Save in background
+      await supabase
         .from("posts")
         .update({ content: finalContent })
         .eq("id", post.id);
-      
-      if (error) throw error;
-      
-      setIsEditing(false);
-      onPostUpdated();
+
     } catch (e) {
-      console.error("Failed to update post:", e);
-      setEditError("Failed to save post.");
-    } finally {
-      setEditLoading(false);
+      console.error("Failed to update post in background:", e);
     }
   };
 
   const handleDeletePost = async () => {
     if (!window.confirm("Are you sure you want to permanently delete this post from the wall?")) return;
     try {
+      // Background delete
       const { error } = await supabase
         .from("posts")
         .delete()
@@ -246,7 +275,7 @@ export default function PostCard({
       
       if (onPostDeleted) {
         onPostDeleted();
-      } else {
+      } else if (onPostUpdated) {
         onPostUpdated();
       }
     } catch (e: any) {
@@ -262,8 +291,11 @@ export default function PostCard({
       return;
     }
     try {
-      setAddCommentLoading(true);
       setCommentError(null);
+
+      const targetAuthor = currentUser && !isAnonymousComment 
+        ? currentUser.username 
+        : (currentUser && isAnonymousComment ? "Anonymous" : (customCommentName.trim() || "Guest"));
 
       const commentData: any = {
         post_id: post.id,
@@ -278,43 +310,80 @@ export default function PostCard({
         commentData.user_id = null;
         commentData.author_name = "Anonymous";
       } else {
-        // Guest comment
         commentData.user_id = null;
         commentData.author_name = customCommentName.trim() || "Guest";
       }
 
-      const { error } = await supabase
-        .from("comments")
-        .insert(commentData);
-      
-      if (error) throw error;
-      
+      // Optimistic comment creation
+      const tempId = "temp_comm_" + Math.random().toString(36).substring(2, 9);
+      const newCommentObj: Comment = {
+        id: tempId,
+        post_id: post.id,
+        content: commentContent.trim(),
+        author_name: targetAuthor,
+        created_at: new Date().toISOString(),
+        user_id: commentData.user_id,
+        profiles: currentUser && !isAnonymousComment ? {
+          id: currentUser.id,
+          username: currentUser.username,
+          display_name: currentUser.display_name,
+          avatar_url: currentUser.avatar_url,
+          bio: currentUser.bio,
+          is_verified: currentUser.is_verified,
+          created_at: currentUser.created_at || new Date().toISOString(),
+          clan_emoji: currentUser.clan_emoji
+        } : null
+      };
+
+      const revisedComments = [...(post.comments || []), newCommentObj];
+      const updatedPost: Post = {
+        ...post,
+        comments: revisedComments,
+      };
+
+      // Set visually instant!
+      setPState(updatedPost);
+      if (onPostUpdated) {
+        onPostUpdated(updatedPost);
+      }
+
       setCommentContent("");
       setCustomCommentName("");
       setIsAnonymousComment(true);
-      onPostUpdated();
+
+      // Persist in background
+      await supabase
+        .from("comments")
+        .insert(commentData);
+
     } catch (err) {
-      console.error("Failed to add comment:", err);
-      setCommentError("Failed to submit comment.");
-    } finally {
-      setAddCommentLoading(false);
+      console.error("Failed to add comment in background:", err);
     }
   };
 
   const handleDeleteComment = async (commentId: string) => {
     if (!window.confirm("Are you sure you want to delete this comment?")) return;
     try {
-      const { error } = await supabase
+      // Optimistic delete
+      const revisedComments = (post.comments || []).filter((c: any) => c.id !== commentId);
+      const updatedPost: Post = {
+        ...post,
+        comments: revisedComments,
+      };
+
+      setPState(updatedPost);
+      if (onPostUpdated) {
+        onPostUpdated(updatedPost);
+      }
+
+      // Supabase persistent update in background
+      await supabase
         .from("comments")
         .delete()
         .eq("id", commentId);
-      
-      if (error) throw error;
-      
-      onPostUpdated();
+
     } catch (e) {
-      console.error("Failed to delete comment:", e);
-      alert("Failed to delete comment.");
+      console.error("Failed to delete comment in background:", e);
     }
   };
 
@@ -365,17 +434,24 @@ export default function PostCard({
         {/* Left side: Avatar Column */}
         <div className="shrink-0">
           {hasJoinedProfile ? (
-            <button
-              onClick={() => onOpenUserProfile((post.profiles as any).username)}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-purple-500/10 overflow-hidden bg-slate-950 p-0.5 hover:opacity-90 transition-opacity cursor-pointer block"
-            >
-              <img
-                src={(post.profiles as any).avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${(post.profiles as any).username}`}
-                alt="avatar"
-                referrerPolicy="no-referrer"
-                className="w-full h-full rounded-full object-cover"
-              />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => onOpenUserProfile((post.profiles as any).username)}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-purple-500/10 overflow-hidden bg-slate-950 p-0.5 hover:opacity-90 transition-opacity cursor-pointer block"
+              >
+                <img
+                  src={(post.profiles as any).avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${(post.profiles as any).username}`}
+                  alt="avatar"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full rounded-full object-cover"
+                />
+              </button>
+              {(((post.profiles as any).is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe", "drop", "durtio"].includes((post.profiles as any).username?.toLowerCase() || "")) ) && (
+                <div className="absolute -bottom-0.5 -right-0.5 bg-[#0c0c11] rounded-full p-[1px] shadow-sm">
+                  <BadgeCheck className="w-3.5 h-3.5 text-purple-400 fill-zinc-950 shrink-0" />
+                </div>
+              )}
+            </div>
           ) : (
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-slate-800 bg-slate-900 flex items-center justify-center text-xs font-bold text-slate-400 select-none">
               {post.author_name ? post.author_name.charAt(0).toUpperCase() : "A"}
@@ -397,17 +473,10 @@ export default function PostCard({
                     >
                       {(post.profiles as any).display_name || (post.profiles as any).username}
                     </button>
-                    {((post.profiles as any).is_verified ||
-                      (post.profiles as any).username.toLowerCase() === "mavebo" ||
-                      (post.profiles as any).username.toLowerCase() === "kode" ||
-                      (post.profiles as any).username.toLowerCase() === "kodewt" ||
-                      (post.profiles as any).username.toLowerCase() === "jocko" ||
-                      (post.profiles as any).username.toLowerCase() === "dil_doe"
-                    ) && (
-                      <BadgeCheck className="w-3.5 h-3.5 text-purple-400 shrink-0 fill-purple-950 inline-block" />
-                    )}
                     {(post.profiles as any).clan_emoji && (
-                      <span className="text-xs shrink-0 inline-block ml-0.5" title="Clan Emoji">{(post.profiles as any).clan_emoji}</span>
+                      <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                        <span className="text-xs shrink-0" title="Clan">{(post.profiles as any).clan_emoji}</span>
+                      </div>
                     )}
                   </div>
                   <span className="text-[10px] text-slate-500">
@@ -586,9 +655,6 @@ export default function PostCard({
                         ? metadata.repost.profiles.display_name || metadata.repost.profiles.username
                         : metadata.repost.author_name || "Anonymous"
                       }</span>
-                      {metadata.repost.profiles && typeof metadata.repost.profiles === "object" && metadata.repost.profiles.clan_emoji && (
-                        <span className="text-xs" title="Clan Emoji">{metadata.repost.profiles.clan_emoji}</span>
-                      )}
                     </span>
                     {metadata.repost.profiles && typeof metadata.repost.profiles === "object" && (
                       <span className="text-slate-500 font-mono">@{metadata.repost.profiles.username}</span>
@@ -689,16 +755,23 @@ export default function PostCard({
                     <CornerDownRight className="w-3.5 h-3.5 text-purple-500 shrink-0 mt-0.5" />
                     
                     {commentHasProfile ? (
-                      <button
-                        onClick={() => onOpenUserProfile((comment.profiles as any).username)}
-                        className="w-6 h-6 rounded-full overflow-hidden bg-slate-950 shrink-0 cursor-pointer block"
-                      >
-                        <img
-                          src={(comment.profiles as any).avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${(comment.profiles as any).username}`}
-                          alt="comment author avatar representation"
-                          className="w-full h-full object-cover"
-                        />
-                      </button>
+                      <div className="relative">
+                        <button
+                          onClick={() => onOpenUserProfile((comment.profiles as any).username)}
+                          className="w-6 h-6 rounded-full overflow-hidden bg-slate-950 shrink-0 cursor-pointer block"
+                        >
+                          <img
+                            src={(comment.profiles as any).avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${(comment.profiles as any).username}`}
+                            alt="comment author avatar representation"
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                        {(((comment.profiles as any).is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe", "drop", "durtio"].includes((comment.profiles as any).username?.toLowerCase() || "")) ) && (
+                          <div className="absolute -bottom-0.5 -right-0.5 bg-[#0c0c11] rounded-full p-[0.5px] shadow-xs">
+                            <BadgeCheck className="w-2.5 h-2.5 text-purple-400 fill-zinc-950 shrink-0" />
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div className="w-6 h-6 rounded-full bg-slate-850 border border-slate-800 text-[9px] font-bold text-slate-450 flex items-center justify-center shrink-0">
                         {comment.author_name ? comment.author_name.charAt(0).toUpperCase() : "A"}
@@ -707,17 +780,21 @@ export default function PostCard({
 
                     <div className="flex-1 min-w-0 space-y-1 text-left">
                       <div className="flex items-baseline justify-between">
-                        <div className="flex items-center space-x-1">
+                        <div className="flex items-center space-x-1.5">
                           {commentHasProfile ? (
-                            <button
-                              onClick={() => onOpenUserProfile((comment.profiles as any).username)}
-                              className="font-bold text-xs text-purple-300 hover:underline cursor-pointer flex items-center gap-1"
-                            >
-                              <span>{(comment.profiles as any).display_name || (comment.profiles as any).username}</span>
+                            <div className="flex items-center space-x-1 flex-wrap">
+                              <button
+                                onClick={() => onOpenUserProfile((comment.profiles as any).username)}
+                                className="font-bold text-xs text-purple-300 hover:underline cursor-pointer flex items-center gap-1"
+                              >
+                                <span>{(comment.profiles as any).display_name || (comment.profiles as any).username}</span>
+                              </button>
                               {(comment.profiles as any).clan_emoji && (
-                                <span className="text-xs" title="Clan Emoji">{(comment.profiles as any).clan_emoji}</span>
+                                <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                                  <span className="text-xs shrink-0" title="Clan">{(comment.profiles as any).clan_emoji}</span>
+                                </div>
                               )}
-                            </button>
+                            </div>
                           ) : (
                             <span className="font-bold text-xs text-slate-405">{comment.author_name || "Anonymous"}</span>
                           )}
