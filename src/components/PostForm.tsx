@@ -241,7 +241,7 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
       <form 
         onSubmit={handleSubmit} 
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !postCaptchaPassed) {
+          if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA" && !postCaptchaPassed) {
             e.preventDefault();
           }
         }}
@@ -253,6 +253,11 @@ export default function PostForm({ currentUser, onPostCreated, onClose, repostOf
             id="post-content-textarea"
             rows={5}
             value={content}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.stopPropagation();
+              }
+            }}
             onChange={(e) => {
               if (e.target.value.length <= charLimit) {
                 setContent(e.target.value);

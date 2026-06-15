@@ -2560,6 +2560,11 @@ export default function App() {
                           maxLength={250}
                           placeholder="Tell us about yourself..."
                           value={editBio}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.stopPropagation();
+                            }
+                          }}
                           onChange={(e) => setEditBio(e.target.value)}
                           className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none bg-zinc-900 border-zinc-805 text-zinc-100"
                         />

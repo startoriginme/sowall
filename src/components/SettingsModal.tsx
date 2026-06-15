@@ -356,6 +356,11 @@ export default function SettingsModal({
                 maxLength={250}
                 placeholder="write some background information..."
                 value={bio}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.stopPropagation();
+                  }
+                }}
                 onChange={(e) => setBio(e.target.value)}
                 className="w-full rounded-xl px-3.5 py-2 text-base focus:outline-none focus:ring-1 focus:ring-purple-500/50 resize-none bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600"
               />
