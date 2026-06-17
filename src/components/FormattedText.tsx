@@ -8,14 +8,15 @@ import React from "react";
 interface FormattedTextProps {
   text: string;
   onOpenUserProfile: (username: string) => void;
+  onHashtagClick?: (hashtag: string) => void;
 }
 
-export default function FormattedText({ text, onOpenUserProfile }: FormattedTextProps) {
+export default function FormattedText({ text, onOpenUserProfile, onHashtagClick }: FormattedTextProps) {
   if (!text) return null;
 
-  // Split by URLs (http/https) or Mentions (@username)
-  // Regexp matches either a full http/https URL up to a whitespace, or a mention start (@) with alphanumeric/dot/underscore/hyphen
-  const parts = text.split(/(https?:\/\/[^\s]+|@[a-zA-Z0-9._-]+)/g);
+  // Split by URLs (http/https), Mentions (@username), or Hashtags (#hashtag)
+  // Regexp matches either http/https URL, a mention start (@), or a hashtag (#)
+  const parts = text.split(/(https?:\/\/[^\s]+|@[a-zA-Z0-9._-]+|#[a-zA-Z0-9_-]+)/g);
 
   return (
     <>
@@ -29,6 +30,25 @@ export default function FormattedText({ text, onOpenUserProfile }: FormattedText
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenUserProfile(cleanUsername.toLowerCase());
+              }}
+              className="text-purple-400 hover:text-purple-300 font-semibold hover:underline cursor-pointer inline"
+            >
+              {part}
+            </span>
+          );
+        }
+
+        if (part.startsWith("#") && part.length > 1) {
+          // Clean hashtag from auxiliary punctuation if attached
+          const cleanHashtag = part.substring(1).replace(/[.,\/#!$%\^&\*;:{}=`~()?]/g, "");
+          return (
+            <span
+              key={index}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onHashtagClick) {
+                  onHashtagClick(cleanHashtag.toLowerCase());
+                }
               }}
               className="text-purple-400 hover:text-purple-300 font-semibold hover:underline cursor-pointer inline"
             >

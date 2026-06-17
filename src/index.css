@@ -398,102 +398,71 @@ html[data-theme="white"] .text-zinc-500 {
   color: #52525b !important;
 }
 
-/* Purple Element Monochrome Overrides */
-html[data-theme="white"] .bg-purple-600 {
-  background-color: #09090b !important;
-  color: #ffffff !important;
-}
+/* Purple Element Monochrome Overrides (Background stays dark, purple accents become white) */
+html.theme-white, .theme-white {
+  /* Scrollbars to white-zinc tint */
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2) !important;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.4) !important;
+  }
 
-html[data-theme="white"] .hover\:bg-purple-700:hover {
-  background-color: #18181b !important;
-}
+  /* Liquid glass and shadows */
+  .liquid-glass-dark {
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  }
+  .purple-glow {
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.08) !important;
+  }
+  .purple-glow-active {
+    box-shadow: 0 0 25px rgba(255, 255, 255, 0.2) !important;
+  }
 
-html[data-theme="white"] .bg-purple-500\/10 {
-  background-color: #fafafa !important;
-  border-color: #e4e4e7 !important;
-  color: #09090b !important;
-}
+  /* Text color overrides */
+  .text-purple-400 { color: #ffffff !important; }
+  .text-purple-300 { color: #f4f4f5 !important; }
+  .text-purple-355 { color: #ffffff !important; }
+  .text-purple-250 { color: #e4e4e7 !important; }
+  .text-purple-600 { color: #ffffff !important; }
+  .hover\:text-purple-300:hover { color: #f4f4f5 !important; }
+  .hover\:text-purple-400:hover { color: #ffffff !important; }
 
-html[data-theme="white"] .border-purple-500\/20,
-html[data-theme="white"] .border-purple-500\/25,
-html[data-theme="white"] .border-purple-500\/30 {
-  border-color: #e4e4e7 !important;
-}
+  /* Background color overrides */
+  .bg-purple-600 { background-color: #ffffff !important; color: #0c0a15 !important; }
+  .bg-purple-500\/10 { background-color: rgba(255, 255, 255, 0.1) !important; }
+  .bg-purple-500\/5 { background-color: rgba(255, 255, 255, 0.04) !important; }
+  .bg-purple-950\/25 { background-color: rgba(255, 255, 255, 0.1) !important; }
+  .bg-purple-650\/10 { background-color: rgba(255, 255, 255, 0.1) !important; }
+  .bg-purple-500\/15 { background-color: rgba(255, 255, 255, 0.1) !important; }
+  .bg-purple-600/20 { background-color: rgba(255, 255, 255, 0.15) !important; }
+  .hover\:bg-purple-750:hover, .hover\:bg-purple-700:hover { background-color: #fafafa !important; color: #0c0a15 !important; }
+  .hover\:bg-purple-500\/10:hover { background-color: rgba(255, 255, 255, 0.1) !important; }
+  .hover\:bg-purple-550\/15:hover { background-color: rgba(255, 255, 255, 0.15) !important; }
+  .hover\:bg-purple-500\/20:hover { background-color: rgba(255, 255, 255, 0.2) !important; }
+  .hover\:bg-purple-500\/25:hover { background-color: rgba(255, 255, 255, 0.25) !important; }
+  
+  /* Border overrides */
+  .border-purple-500\/10 { border-color: rgba(255, 255, 255, 0.1) !important; }
+  .border-purple-500\/15 { border-color: rgba(255, 255, 255, 0.15) !important; }
+  .border-purple-500\/20 { border-color: rgba(255, 255, 255, 0.2) !important; }
+  .border-purple-500\/30 { border-color: rgba(255, 255, 255, 0.3) !important; }
+  .border-purple-500\/25 { border-color: rgba(255, 255, 255, 0.25) !important; }
+  .border-purple-550\/20 { border-color: rgba(255, 255, 255, 0.2) !important; }
 
-html[data-theme="white"] .bg-purple-500\/5 {
-  background-color: #fafafa !important;
-}
+  /* Ring/Shadow overrides */
+  .ring-purple-500\/10 { --tw-ring-color: rgba(255, 255, 255, 0.1) !important; }
+  .ring-purple-500\/20 { --tw-ring-color: rgba(255, 255, 255, 0.2) !important; }
+  .focus\:ring-purple-500\/50:focus { --tw-ring-color: rgba(255, 255, 255, 0.4) !important; }
+  .focus\:border-purple-500\/50:focus { border-color: rgba(255, 255, 255, 0.4) !important; }
 
-/* Verification Badge Overlay */
-html[data-theme="white"] .fill-purple-950 {
-  fill: #ffffff !important;
-}
-
-html[data-theme="white"] .fill-zinc-950 {
-  fill: #ffffff !important;
-}
-
-/* Card and Container Backgrounds */
-html[data-theme="white"] .bg-\[\#0a0815\],
-html[data-theme="white"] .bg-\[\#0b0b0f\],
-html[data-theme="white"] .bg-\[\#0c0a15\],
-html[data-theme="white"] .bg-\[\#0d0c14\],
-html[data-theme="white"] .bg-\[\#0d0d14\],
-html[data-theme="white"] .hover\:bg-\[\#0d0d14\]:hover,
-html[data-theme="white"] .bg-\[\#050508\]\/60,
-html[data-theme="white"] .bg-\[\#0f0f14\],
-html[data-theme="white"] .bg-\[\#0f0e15\],
-html[data-theme="white"] .bg-\[\#161620\],
-html[data-theme="white"] .bg-zinc-950,
-html[data-theme="white"] .bg-zinc-950\/40,
-html[data-theme="white"] .bg-\[\#121118\]\/30,
-html[data-theme="white"] .bg-\[\#121118\]\/45,
-html[data-theme="white"] .bg-\[\#161421\],
-html[data-theme="white"] .bg-\[\#181622\]\/40,
-html[data-theme="white"] .bg-zinc-900,
-html[data-theme="white"] .bg-zinc-900\/40,
-html[data-theme="white"] .bg-black\/15,
-html[data-theme="white"] .bg-black\/20,
-html[data-theme="white"] .bg-black\/45 {
-  background-color: #fbfbfb !important;
-  background: #fbfbfb !important;
-}
-
-html[data-theme="white"] .border-zinc-800,
-html[data-theme="white"] .border-zinc-850,
-html[data-theme="white"] .border-zinc-900,
-html[data-theme="white"] .border-zinc-900\/40,
-html[data-theme="white"] .border-zinc-805\/60 {
-  border-color: #e4e4e7 !important;
-}
-
-html[data-theme="white"] .glass-panel,
-html[data-theme="white"] .liquid-glass-dark {
-  background-color: #ffffff !important;
-  border-color: #e4e4e7 !important;
-  color: #09090b !important;
-}
-
-html[data-theme="white"] ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15) !important;
-}
-
-html[data-theme="white"] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25) !important;
-}
-
-/* Dialog & Input Overrides */
-html[data-theme="white"] input,
-html[data-theme="white"] textarea,
-html[data-theme="white"] select {
-  background-color: #ffffff !important;
-  border-color: #e4e4e7 !important;
-  color: #09090b !important;
-}
-
-html[data-theme="white"] input::placeholder,
-html[data-theme="white"] textarea::placeholder {
-  color: #a1a1aa !important;
+  /* Fill SVGs */
+  .fill-purple-950 { fill: #000000 !important; }
+  .fill-zinc-950 { fill: #000000 !important; }
+  
+  /* Buttons and gradients */
+  .from-purple-600 { --tw-gradient-from: #ffffff !important; }
+  .to-indigo-600 { --tw-gradient-to: #e4e4e7 !important; }
 }
 
 

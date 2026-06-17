@@ -8,9 +8,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { 
   HelpCircle, User, Shield, ShieldCheck, Search, RefreshCw, 
   Plus, FileText, Users, BadgeCheck, Settings, LogOut, 
-  ChevronLeft, Heart, Repeat, Check, Moon, Sun, Upload, Mail, Lock, BookOpen, X, Sparkles, Trophy, Award
+  ChevronLeft, ChevronRight, Heart, Repeat, Check, Moon, Sun, Upload, Mail, Lock, BookOpen, X, Sparkles, Trophy, Award
 } from "lucide-react";
-import { Post, UserSessionData } from "./types";
+import { Post, UserSessionData, Profile } from "./types";
 import AboutModal from "./components/AboutModal";
 import CreatePostModal from "./components/CreatePostModal";
 import PostCard from "./components/PostCard";
@@ -21,10 +21,50 @@ import ClanSelectorModal from "./components/ClanSelectorModal";
 import { supabase } from "./lib/supabase";
 
 export default function App() {
-  const [activeView, setActiveView] = useState<"feed" | "profile" | "user-profile" | "settings" | "post-detail" | "admin">("feed");
+  const [activeView, setActiveView] = useState<"feed" | "profile" | "user-profile" | "settings" | "post-detail" | "admin" | "hashtag">("feed");
   const feedScrollRef = useRef(0);
   const [activeUsername, setActiveUsername] = useState<string | null>(null);
   const [activePostId, setActivePostId] = useState<string | null>(null);
+
+  // Design Preference State (toggles between purple and white)
+  const [designPreference, setDesignPreference] = useState<"purple" | "white">(() => {
+    return (localStorage.getItem("designPreference") as "purple" | "white") || "purple";
+  });
+
+  const toggleDesignPreference = () => {
+    const nextPref = designPreference === "purple" ? "white" : "purple";
+    setDesignPreference(nextPref);
+    localStorage.setItem("designPreference", nextPref);
+  };
+
+  useEffect(() => {
+    document.documentElement.classList.remove("theme-purple", "theme-white");
+    document.documentElement.classList.add(`theme-${designPreference}`);
+  }, [designPreference]);
+
+  // Current User Reference (to prevent reloading feed on tab refocus / auth state re-evaluation)
+  const currentUserRef = useRef<UserSessionData | null>(null);
+
+  // Feed filter state: All, My Clan, or Friends
+  const [feedFilter, setFeedFilter] = useState<"all" | "clan" | "friends">("all");
+
+  // Hashtag states
+  const [activeHashtag, setActiveHashtag] = useState("");
+  const [hashtagPosts, setHashtagPosts] = useState<Post[]>([]);
+  const [hashtagPage, setHashtagPage] = useState(0);
+  const [hashtagLoading, setHashtagLoading] = useState(false);
+  const [hashtagHasMore, setHashtagHasMore] = useState(true);
+
+  // Follow states
+  const [profileFollowersCount, setProfileFollowersCount] = useState(0);
+  const [profileFollowingCount, setProfileFollowingCount] = useState(0);
+  const [isFollowingProfile, setIsFollowingProfile] = useState(false);
+
+  // Follow lists
+  const [followsListType, setFollowsListType] = useState<"followers" | "following" | null>(null);
+  const [followsListUsers, setFollowsListUsers] = useState<any[]>([]);
+  const [loadingFollowsList, setLoadingFollowsList] = useState(false);
+  const [isFollowsModalOpen, setIsFollowsModalOpen] = useState(false);
 
   // Purple Pixel Entry Loader Animation
   const [showPixelLoader, setShowPixelLoader] = useState(true);
@@ -98,6 +138,10 @@ export default function App() {
 
   // Authenticated user state
   const [currentUser, setCurrentUser] = useState<UserSessionData | null>(null);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   // Active theme state (always forced to dark theme)
   const theme = "dark";
@@ -333,7 +377,7 @@ export default function App() {
     setIsPostModalOpen(true);
   };
 
-  const navigateTo = (view: typeof activeView, params?: { username?: string; postId?: string }) => {
+  const navigateTo = (view: typeof activeView, params?: { username?: string; postId?: string; hashtag?: string }) => {
     if (view === "settings") {
       setIsSettingsOpen(true);
       return;
@@ -348,6 +392,7 @@ export default function App() {
     else if (view === "admin") path = "/admin";
     else if (view === "user-profile" && params?.username) path = `/profile/${params.username}`;
     else if (view === "post-detail" && params?.postId) path = `/post/${params.postId}`;
+    else if (view === "hashtag" && params?.hashtag) path = `/hashtag/${params.hashtag}`;
 
     window.history.pushState(null, "", path);
     setActiveView(view);
@@ -449,6 +494,191 @@ export default function App() {
     } finally {
       setLoadingActivePost(false);
     }
+  };
+
+  // Follow/Followers Helper Logic
+  const fetchFollowsData = async (targetUserId: string) => {
+    try {
+      const { count: followersCount } = await supabase
+        .from("follows")
+        .select("*", { count: "exact", head: true })
+        .eq("following_id", targetUserId);
+
+      const { count: followingCount } = await supabase
+        .from("follows")
+        .select("*", { count: "exact", head: true })
+        .eq("follower_id", targetUserId);
+      
+      setProfileFollowersCount(followersCount || 0);
+      setProfileFollowingCount(followingCount || 0);
+
+      if (currentUser) {
+        const { data } = await supabase
+          .from("follows")
+          .select("*")
+          .eq("follower_id", currentUser.id)
+          .eq("following_id", targetUserId)
+          .maybeSingle();
+        
+        setIsFollowingProfile(!!data);
+      } else {
+        setIsFollowingProfile(false);
+      }
+    } catch (e) {
+      console.error("Error in fetchFollowsData:", e);
+    }
+  };
+
+  const handleToggleFollow = async (targetUserId: string) => {
+    if (!currentUser) {
+      alert("Please log in to follow other members.");
+      return;
+    }
+    try {
+      if (isFollowingProfile) {
+        // Unfollow
+        const { error } = await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", currentUser.id)
+          .eq("following_id", targetUserId);
+        
+        if (error) throw error;
+        setIsFollowingProfile(false);
+        setProfileFollowersCount(prev => Math.max(0, prev - 1));
+      } else {
+        // Follow
+        const { error } = await supabase
+          .from("follows")
+          .insert({
+            follower_id: currentUser.id,
+            following_id: targetUserId
+          });
+        
+        if (error) throw error;
+        setIsFollowingProfile(true);
+        setProfileFollowersCount(prev => prev + 1);
+      }
+    } catch (e: any) {
+      console.warn("Follow failed (did you run database-changes.sql?):", e.message);
+      // Fallback for demo in case table is missing - simulate visual state toggle
+      setIsFollowingProfile(!isFollowingProfile);
+      setProfileFollowersCount(prev => isFollowingProfile ? Math.max(0, prev - 1) : prev + 1);
+    }
+  };
+
+  const handleOpenFollowsList = async (type: "followers" | "following", userId: string) => {
+    setFollowsListType(type);
+    setIsFollowsModalOpen(true);
+    setLoadingFollowsList(true);
+    setFollowsListUsers([]);
+
+    try {
+      if (type === "followers") {
+        const { data, error } = await supabase
+          .from("follows")
+          .select(`
+            follower_id,
+            profiles!follows_follower_id_fkey (*)
+          `)
+          .eq("following_id", userId);
+        
+        if (error) {
+          // fallback query if relationships are generic
+          const { data: dataAlt, error: errorAlt } = await supabase
+            .from("follows")
+            .select("*")
+            .eq("following_id", userId);
+          if (errorAlt) throw errorAlt;
+          const userIds = (dataAlt || []).map(d => d.follower_id);
+          const { data: usersData } = await supabase
+            .from("profiles")
+            .select("*")
+            .in("id", userIds);
+          setFollowsListUsers(usersData || []);
+        } else {
+          const mapped = (data || []).map((item: any) => item.profiles).filter(Boolean);
+          setFollowsListUsers(mapped);
+        }
+      } else {
+        const { data, error } = await supabase
+          .from("follows")
+          .select(`
+            following_id,
+            profiles!follows_following_id_fkey (*)
+          `)
+          .eq("follower_id", userId);
+        
+        if (error) {
+          const { data: dataAlt, error: errorAlt } = await supabase
+            .from("follows")
+            .select("*")
+            .eq("follower_id", userId);
+          if (errorAlt) throw errorAlt;
+          const userIds = (dataAlt || []).map(d => d.following_id);
+          const { data: usersData } = await supabase
+            .from("profiles")
+            .select("*")
+            .in("id", userIds);
+          setFollowsListUsers(usersData || []);
+        } else {
+          const mapped = (data || []).map((item: any) => item.profiles).filter(Boolean);
+          setFollowsListUsers(mapped);
+        }
+      }
+    } catch (e) {
+      console.error("Error loading follows list:", e);
+    } finally {
+      setLoadingFollowsList(false);
+    }
+  };
+
+  // Hashtag Search and Feed Loader
+  const fetchHashtagPosts = async (tag: string, page = 0, append = false) => {
+    try {
+      if (page === 0) {
+        setHashtagLoading(true);
+      }
+      const limit = 10;
+      const from = page * limit;
+      const to = from + limit - 1;
+
+      const { data, error } = await supabase
+        .from("posts")
+        .select(`
+          *,
+          profiles:profiles!posts_user_id_fkey (*)
+        `)
+        .ilike("content", `%#${tag}%`)
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (error) throw error;
+
+      if (append) {
+        setHashtagPosts(prev => {
+          const combined = [...prev, ...(data || [])];
+          const seen = new Set();
+          return combined.filter(p => !seen.has(p.id) && seen.add(p.id));
+        });
+      } else {
+        setHashtagPosts(data || []);
+      }
+
+      setHashtagHasMore((data || []).length === limit);
+      setHashtagPage(page);
+    } catch (e) {
+      console.error("Error fetching hashtag posts:", e);
+    } finally {
+      setHashtagLoading(false);
+    }
+  };
+
+  const handleHashtagClick = (tag: string) => {
+    const cleanTag = tag.trim().replace("#", "").toLowerCase();
+    setActiveHashtag(cleanTag);
+    navigateTo("hashtag");
+    fetchHashtagPosts(cleanTag, 0, false);
   };
 
   const handleUpdateClanEmoji = async (newEmoji: string | null) => {
@@ -612,34 +842,53 @@ export default function App() {
       }
 
       setProfilePageData(freshProfileData);
+      await fetchFollowsData(profile.id);
       try {
         localStorage.setItem(cacheKey, JSON.stringify(freshProfileData));
       } catch (e) {}
+      return profile;
     } catch (err: any) {
       console.error("Failed to fetch public profile details:", err);
       if (!localStorage.getItem(`cached_profile_${username.toLowerCase()}`)) {
         setProfileError(err.message || "Could not retrieve user details.");
       }
+      return null;
     } finally {
       setProfileLoading(false);
     }
   };
 
-  const fetchPosts = async (page: any = 0, isAppend = false) => {
+  const handleReloadProfile = async (username: string) => {
+    const cacheKey = `cached_profile_${username.toLowerCase()}`;
+    try {
+      localStorage.removeItem(cacheKey);
+    } catch (e) {}
+    
+    const profile = await fetchUserProfileData(username);
+    if (profile?.id) {
+      await fetchProfilePosts(profile.id, 0, false);
+    }
+  };
+
+  const fetchPosts = async (page: any = 0, isAppend = false, overrideFilter?: "all" | "clan" | "friends") => {
     const pageNum = typeof page === "number" ? page : 0;
     const isAppendMode = typeof page === "number" ? isAppend : false;
+    const activeFilter = overrideFilter || feedFilter;
+
     try {
       if (pageNum === 0) {
         setLoadingPosts(true);
         setPostsPage(0);
         setHasMorePosts(true);
-        try {
-          const cached = localStorage.getItem("cache_posts");
-          if (cached && posts.length === 0) {
-            setPosts(JSON.parse(cached));
+        if (activeFilter === "all") {
+          try {
+            const cached = localStorage.getItem("cache_posts");
+            if (cached && posts.length === 0 && !isAppendMode) {
+              setPosts(JSON.parse(cached));
+            }
+          } catch (e) {
+            localStorage.removeItem("cache_posts");
           }
-        } catch (e) {
-          localStorage.removeItem("cache_posts");
         }
       } else {
         setLoadingMore(true);
@@ -649,7 +898,7 @@ export default function App() {
       const from = pageNum * 10;
       const to = from + 9;
 
-      const { data: postsData, error: postsError } = await supabase
+      let b_query = supabase
         .from("posts")
         .select(`
           *,
@@ -660,8 +909,73 @@ export default function App() {
           ),
           post_likes (*)
         `)
-        .order("created_at", { ascending: false })
-        .range(from, to);
+        .order("created_at", { ascending: false });
+
+      if (activeFilter === "clan") {
+        if (!currentUser) {
+          setPosts([]);
+          setHasMorePosts(false);
+          setPostsError("Please sign in to view your clan's feed.");
+          setLoadingPosts(false);
+          setLoadingMore(false);
+          return;
+        }
+        if (!currentUser.clan_emoji) {
+          setPosts([]);
+          setHasMorePosts(false);
+          setPostsError("You haven't joined a clan yet! Choose your clan flag in profile settings to display a clan-only feed.");
+          setLoadingPosts(false);
+          setLoadingMore(false);
+          return;
+        }
+
+        const { data: clanProfiles, error: cpError } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("clan_emoji", currentUser.clan_emoji);
+
+        if (cpError) throw cpError;
+
+        const clanProfileIds = (clanProfiles || []).map((p: any) => p.id);
+        if (clanProfileIds.length === 0) {
+          setPosts([]);
+          setHasMorePosts(false);
+          setLoadingPosts(false);
+          setLoadingMore(false);
+          return;
+        }
+        b_query = b_query.in("user_id", clanProfileIds);
+
+      } else if (activeFilter === "friends") {
+        if (!currentUser) {
+          setPosts([]);
+          setHasMorePosts(false);
+          setPostsError("Please sign in to view your friends' feed.");
+          setLoadingPosts(false);
+          setLoadingMore(false);
+          return;
+        }
+
+        const { data: followedData, error: fError } = await supabase
+          .from("follows")
+          .select("following_id")
+          .eq("follower_id", currentUser.id);
+
+        if (fError) throw fError;
+
+        const followedIds = (followedData || []).map((f: any) => f.following_id);
+        if (followedIds.length === 0) {
+          setPosts([]);
+          setHasMorePosts(false);
+          setPostsError("You aren't following anyone yet! Follow players from their profile pages to see their feed updates.");
+          setLoadingPosts(false);
+          setLoadingMore(false);
+          return;
+        }
+        b_query = b_query.in("user_id", followedIds);
+      }
+
+      const { data: postsData, error: postsError } = await b_query.range(from, to);
 
       if (postsError) throw postsError;
 
@@ -682,9 +996,11 @@ export default function App() {
         });
       } else {
         setPosts(enrichedPosts);
-        try {
-          localStorage.setItem("cache_posts", JSON.stringify(enrichedPosts));
-        } catch (e) {}
+        if (activeFilter === "all") {
+          try {
+            localStorage.setItem("cache_posts", JSON.stringify(enrichedPosts));
+          } catch (e) {}
+        }
       }
 
       setHasMorePosts(enrichedPosts.length === 10);
@@ -699,6 +1015,12 @@ export default function App() {
       setLoadingMore(false);
     }
   };
+
+  useEffect(() => {
+    if (activeView === "feed") {
+      fetchPosts(0, false, feedFilter);
+    }
+  }, [feedFilter, activeView]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -764,6 +1086,10 @@ export default function App() {
         if (!isMounted) return;
         
         if (event === "SIGNED_IN" && session) {
+          if (currentUserRef.current?.id === session.user.id) {
+            // Already logged in as this user, do not trigger refresh or fetch posts
+            return;
+          }
           const { data: profile } = await supabase
             .from("profiles")
             .select("*")
@@ -786,8 +1112,8 @@ export default function App() {
             setCurrentUser(u);
             localStorage.setItem("token", session.access_token);
             localStorage.setItem("userId", session.user.id);
+            fetchPosts();
           }
-          fetchPosts();
         } else if (event === "SIGNED_OUT") {
           setCurrentUser(null);
           localStorage.removeItem("token");
@@ -835,6 +1161,14 @@ export default function App() {
         setActiveView("user-profile");
         setActiveUsername(username);
         fetchUserProfileData(username);
+        return;
+      }
+    } else if (path.startsWith("/hashtag/")) {
+      const tag = path.split("/")[2];
+      if (tag) {
+        setActiveView("hashtag");
+        setActiveHashtag(tag);
+        fetchHashtagPosts(tag, 0, false);
         return;
       }
     } else if (path === "/profile") {
@@ -1345,8 +1679,18 @@ export default function App() {
               </h4>
               <div className="space-y-4 text-xs leading-relaxed max-h-72 overflow-y-auto pr-1">
                 <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
-                  <p className="font-bold text-purple-400">v1.2.1 (current)</p>
+                  <p className="font-bold text-purple-400">v1.3 (current)</p>
                   <ul className={`mt-1.5 list-disc list-inside space-y-0.5 ${textClass}`}>
+                    <li>Hashtags added</li>
+                    <li>Followers/following added</li>
+                    <li>Added design preferences (beta)</li>
+                    <li>Fixed some optimization problems</li>
+                    <li>Minor improvements</li>
+                  </ul>
+                </div>
+                <div className={`p-3 rounded-xl ${isDark ? 'bg-black/20' : 'bg-black/5'}`}>
+                  <p className="font-bold text-zinc-400">v1.2.1</p>
+                  <ul className={`mt-1.5 list-disc list-inside space-y-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                     <li>Fixed optimization problems</li>
                     <li>Fixed bugs in settings</li>
                     <li>Minor improvements</li>
@@ -1410,12 +1754,21 @@ export default function App() {
                 <span className="text-white font-bold opacity-90">origin</span>
               </h1>
             </button>
-            <button 
-              onClick={() => setShowVersions(true)}
-              className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 cursor-pointer hover:bg-purple-500/25 transition-all"
-            >
-              v1.2.1
-            </button>
+            <div className="flex items-center space-x-1.5 shrink-0">
+              <button 
+                onClick={toggleDesignPreference}
+                className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer active:scale-95"
+                title={`Switch connection mode / theme (current: ${designPreference})`}
+              >
+                {designPreference === "purple" ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5 text-yellow-400" />}
+              </button>
+              <button 
+                onClick={() => setShowVersions(true)}
+                className="px-2 py-1 text-[9px] font-bold rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 cursor-pointer hover:bg-purple-500/25 transition-all"
+              >
+                v1.3
+              </button>
+            </div>
           </div>
 
           <div className={`p-3.5 rounded-xl border ${borderClass} bg-black/15 overflow-hidden`}>
@@ -1545,10 +1898,17 @@ export default function App() {
         
         <div className="flex items-center space-x-2.5">
           <button 
+            onClick={toggleDesignPreference}
+            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer active:scale-95"
+            title={`Switch connection mode / theme (current: ${designPreference})`}
+          >
+            {designPreference === "purple" ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5 text-yellow-400" />}
+          </button>
+          <button 
             onClick={() => setShowVersions(true)}
             className="px-2 py-0.5 text-[9px] font-bold rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 cursor-pointer"
           >
-            v1.2.1
+            v1.3
           </button>
           {currentUser && (
             <button onClick={() => navigateTo("settings")} className="p-1.5 text-zinc-400 hover:text-purple-400">
@@ -1626,6 +1986,50 @@ export default function App() {
                       <RefreshCw className={`w-3.5 h-3.5 ${loadingPosts ? 'animate-spin' : ''}`} />
                     </button>
                   </div>
+                </div>
+
+                {/* Multi-Channel Feed Selector */}
+                <div id="feed-filter-tabs" className="flex border-b border-zinc-900 pb-1.5 space-x-6 text-xs font-bold text-left select-none overflow-x-auto scrollbar-none">
+                  <button 
+                    onClick={() => setFeedFilter("all")}
+                    className={`pb-2 px-1 relative transition-all cursor-pointer ${
+                      feedFilter === "all" 
+                        ? "text-purple-400 font-extrabold" 
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    All broadcast
+                    {feedFilter === "all" && (
+                      <motion.div layoutId="activeFeedLine" className="absolute bottom-0 left-0 right-0 h-[2px] bg-purple-550 rounded-full" />
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => setFeedFilter("clan")}
+                    className={`pb-2 px-1 relative transition-all cursor-pointer flex items-center gap-1.5 ${
+                      feedFilter === "clan" 
+                        ? "text-purple-400 font-extrabold" 
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    <span>My Clan</span>
+                    {currentUser?.clan_emoji && <span className="text-[10px]">{currentUser.clan_emoji}</span>}
+                    {feedFilter === "clan" && (
+                      <motion.div layoutId="activeFeedLine" className="absolute bottom-0 left-0 right-0 h-[2px] bg-purple-550 rounded-full" />
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => setFeedFilter("friends")}
+                    className={`pb-2 px-1 relative transition-all cursor-pointer flex items-center gap-1.5 ${
+                      feedFilter === "friends" 
+                        ? "text-purple-400 font-extrabold" 
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    <span>Friends feed</span>
+                    {feedFilter === "friends" && (
+                      <motion.div layoutId="activeFeedLine" className="absolute bottom-0 left-0 right-0 h-[2px] bg-purple-550 rounded-full" />
+                    )}
+                  </button>
                 </div>
 
 
@@ -1867,6 +2271,84 @@ export default function App() {
               </motion.div>
             )}
 
+            {/* HASHTAG VIEW */}
+            {activeView === "hashtag" && (
+              <motion.div 
+                key="hashtag" 
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 1 }} 
+                exit={{ opacity: 0 }} 
+                className="space-y-4"
+              >
+                <div className={`flex items-center justify-between border-b ${borderClass} pb-2`}>
+                  <button 
+                    onClick={() => navigateTo("feed")}
+                    className="flex items-center space-x-1 text-xs font-bold text-purple-400 hover:text-purple-305 cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Back to Wall Feed</span>
+                  </button>
+                  <span className="text-[10px] uppercase font-mono tracking-widest text-[#a855f7] font-black">
+                    #{activeHashtag}
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-xl bg-purple-950/10 border border-purple-500/10 text-left">
+                  <h3 className="text-sm font-extrabold text-white flex items-center space-x-2">
+                    <span className="text-purple-400">#</span>
+                    <span>{activeHashtag} tag channel</span>
+                  </h3>
+                  <p className="text-[11px] text-zinc-400 font-mono mt-1">
+                    Displaying broadcasts tagged with #{activeHashtag} (paginated feed)
+                  </p>
+                </div>
+
+                {hashtagLoading && hashtagPosts.length === 0 ? (
+                  <GhostLoader />
+                ) : hashtagPosts.length > 0 ? (
+                  <div className="space-y-4">
+                    {hashtagPosts.map((post: Post) => (
+                      <PostCard 
+                        key={post.id}
+                        post={post}
+                        currentUser={currentUser}
+                        onPostUpdated={(newPost) => {
+                          if (newPost) {
+                            setHashtagPosts(prev => prev.map(p => p.id === newPost.id ? newPost : p));
+                          } else {
+                            fetchHashtagPosts(activeHashtag, 0, false);
+                          }
+                        }}
+                        onPostDeleted={() => {
+                          fetchHashtagPosts(activeHashtag, 0, false);
+                        }}
+                        onOpenUserProfile={(name) => navigateTo("user-profile", { username: name })}
+                        onClickPost={(id) => navigateTo("post-detail", { postId: id })}
+                        adminPassword={adminPassword}
+                        onRepost={handleRepost}
+                      />
+                    ))}
+                    
+                    {hashtagHasMore && (
+                      <div className="flex justify-center pt-2">
+                        <button
+                          onClick={() => fetchHashtagPosts(activeHashtag, hashtagPage + 1, true)}
+                          disabled={hashtagLoading}
+                          className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:bg-purple-900/30 text-white font-bold text-xs cursor-pointer transition-all"
+                        >
+                          {hashtagLoading ? "loading more tagged posts..." : "load next 10 posts"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className={`p-12 text-center bg-transparent border ${borderClass} rounded-2xl`}>
+                    <p className="text-xs text-zinc-500 font-medium">No posts with #{activeHashtag} found yet!</p>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
             {/* PROFILE VIEW */}
             {activeView === "profile" && (
               <motion.div 
@@ -1932,9 +2414,7 @@ export default function App() {
                             <img 
                               src={currentUser.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(currentUser.username)}`}
                               alt={currentUser.username}
-                              className="w-20 h-20 rounded-full border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10 cursor-pointer hover:opacity-85 transition-all"
-                              onClick={() => directAvatarInputRef.current?.click()}
-                              title="click avatar to upload custom image (no links!)"
+                              className="w-20 h-20 rounded-full border-4 border-[#0c0a15] bg-[#161421] object-cover shadow-2xl ring-2 ring-purple-500/10"
                             />
                             {((currentUser.is_verified || ["mavebo", "kode", "kodewt", "jocko", "dil_doe", "drop", "durtio"].includes(currentUser.username.toLowerCase())) ) && (
                               <div className="absolute -bottom-1.5 -right-1.5 bg-black rounded-full p-0.5 border border-purple-500/30 shadow-lg">
@@ -1960,20 +2440,47 @@ export default function App() {
                                 </button>
                               </h3>
                             </div>
-                            <p className="text-xs text-purple-400 font-mono">@{currentUser.username}</p>
+                            <p className="text-xs text-purple-400 font-mono leading-none">@{currentUser.username}</p>
+                            
+                            {/* Follower/following counts */}
+                            <div className="flex space-x-3 text-[11px] font-mono pt-1 text-zinc-400">
+                              <button 
+                                onClick={() => handleOpenFollowsList("followers", currentUser.id)}
+                                className="hover:text-purple-400 cursor-pointer outline-none"
+                              >
+                                <span className="text-white font-bold">{profileFollowersCount}</span> followers
+                              </button>
+                              <button 
+                                onClick={() => handleOpenFollowsList("following", currentUser.id)}
+                                className="hover:text-purple-400 cursor-pointer outline-none"
+                              >
+                                <span className="text-white font-bold">{profileFollowingCount}</span> following
+                              </button>
+                            </div>
                           </div>
                         </div>
 
-                        <button 
-                          onClick={() => navigateTo("settings")}
-                          className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0 self-start sm:self-auto"
-                        >
-                          <span>edit profile settings</span>
-                        </button>
+                        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+                          <button 
+                            onClick={() => handleReloadProfile(currentUser.username)}
+                            title="Reload info and posts"
+                            className="p-2 rounded-xl border border-zinc-805 bg-zinc-900/60 hover:bg-zinc-850 text-zinc-400 hover:text-white cursor-pointer transition-all flex items-center gap-1.5 px-3 py-2 text-xs font-bold"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 animate-pulse" />
+                            <span className="hidden sm:inline">reload posts</span>
+                          </button>
+
+                          <button 
+                            onClick={() => navigateTo("settings")}
+                            className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0"
+                          >
+                            <span>edit profile settings</span>
+                          </button>
+                        </div>
                       </div>
 
                       <div className="pt-4 border-t border-zinc-800/65 space-y-3">
-                        <div className="p-3.5 rounded-xl bg-black/45 text-left">
+                        <div className="p-3.5 rounded-xl bg-black/45 text-left space-y-2.5">
                           <p className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-sans">
                             {parsedMyBioText || "No description / biography details added yet. Tap Settings to update profile details."}
                           </p>
@@ -2309,22 +2816,60 @@ export default function App() {
                                 )}
                               </h3>
                             </div>
-                            <p className="text-xs text-purple-400 font-mono">@{profilePageData.username}</p>
+                            <p className="text-xs text-purple-400 font-mono leading-none">@{profilePageData.username}</p>
+
+                            {/* Follower/following counts */}
+                            <div className="flex space-x-3 text-[11px] font-mono pt-1 text-zinc-400">
+                              <button 
+                                onClick={() => handleOpenFollowsList("followers", profilePageData.id)}
+                                className="hover:text-purple-400 cursor-pointer outline-none"
+                              >
+                                <span className="text-white font-bold">{profileFollowersCount}</span> followers
+                              </button>
+                              <button 
+                                onClick={() => handleOpenFollowsList("following", profilePageData.id)}
+                                className="hover:text-purple-400 cursor-pointer outline-none"
+                              >
+                                <span className="text-white font-bold">{profileFollowingCount}</span> following
+                              </button>
+                            </div>
                           </div>
                         </div>
 
-                        {currentUser && currentUser.username.toLowerCase() === profilePageData.username.toLowerCase() && (
+                        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
                           <button 
-                            onClick={() => navigateTo("settings")}
-                            className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0 self-start sm:self-auto"
+                            onClick={() => handleReloadProfile(profilePageData.username)}
+                            title="Reload info and posts"
+                            className="p-2 rounded-xl border border-zinc-805 bg-zinc-900/60 hover:bg-zinc-850 text-zinc-400 hover:text-white cursor-pointer transition-all flex items-center gap-1.5 px-3 py-2 text-xs font-bold"
                           >
-                            edit profile settings
+                            <RefreshCw className="w-3.5 h-3.5 animate-pulse" />
+                            <span className="hidden sm:inline">reload posts</span>
                           </button>
-                        )}
+
+                          {currentUser && currentUser.username.toLowerCase() === profilePageData.username.toLowerCase() ? (
+                            <button 
+                              onClick={() => navigateTo("settings")}
+                              className="px-4 py-2 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-300 font-bold text-xs cursor-pointer transition-all shrink-0"
+                            >
+                              edit profile settings
+                            </button>
+                          ) : currentUser ? (
+                            <button 
+                              onClick={() => handleToggleFollow(profilePageData.id)}
+                              className={`px-4.5 py-2 rounded-xl text-xs font-black shadow-lg transition-all cursor-pointer ${
+                                isFollowingProfile 
+                                  ? "bg-zinc-800 text-zinc-300 hover:bg-red-950/40 hover:text-red-400 border border-zinc-700/60" 
+                                  : "bg-purple-600 hover:bg-purple-700 text-white"
+                              }`}
+                            >
+                              {isFollowingProfile ? "✓ Following" : "+ Follow"}
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
 
                       <div className="pt-4 border-t border-zinc-800/65 space-y-3">
-                        <div className="p-3.5 rounded-xl bg-black/45 border border-zinc-900/40 text-left">
+                        <div className="p-3.5 rounded-xl bg-black/45 border border-zinc-900/40 text-left space-y-2.5">
                           <p className="text-xs leading-relaxed text-slate-300 whitespace-pre-wrap font-sans">
                             {(() => {
                               let displayPublicBio = "";
@@ -3067,6 +3612,75 @@ export default function App() {
         currentClan={currentUser?.clan_emoji || null}
         onSelectClan={handleUpdateClanEmoji}
       />
+
+      {/* Follows List Modal */}
+      {isFollowsModalOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-[#0b0b0f] border border-zinc-800 rounded-2xl w-full max-w-sm p-5 relative overflow-hidden text-left"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-4">
+              <h3 className="text-sm font-extrabold text-white capitalize">
+                {followsListType} list
+              </h3>
+              <button
+                onClick={() => setIsFollowsModalOpen(false)}
+                className="text-zinc-500 hover:text-white transition-colors bg-zinc-900 border border-zinc-800 p-1.5 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* List area */}
+            <div className="max-h-80 overflow-y-auto space-y-2.5 pr-1">
+              {loadingFollowsList ? (
+                <div className="py-8 flex justify-center">
+                  <RefreshCw className="w-5 h-5 text-purple-400 animate-spin" />
+                </div>
+              ) : followsListUsers.length > 0 ? (
+                followsListUsers.map((user: Profile) => (
+                  <div 
+                    key={user.id}
+                    onClick={() => {
+                      setIsFollowsModalOpen(false);
+                      navigateTo("user-profile", { username: user.username });
+                    }}
+                    className="p-3.5 rounded-xl border border-zinc-900 bg-zinc-950/45 hover:bg-zinc-900/60 transition-all cursor-pointer text-left flex items-center justify-between group"
+                  >
+                    <div className="flex items-center space-x-3 min-w-0">
+                      <img 
+                        src={user.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.username)}`}
+                        alt={user.username}
+                        className="w-9 h-9 rounded-full bg-zinc-900 border border-zinc-800"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center space-x-1.5 min-w-0">
+                          <span className="text-white text-xs font-bold truncate group-hover:text-purple-400 transition-colors">
+                            {user.display_name || user.username}
+                          </span>
+                          {user.is_verified && (
+                            <BadgeCheck className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-[10px] text-zinc-500 font-mono">@{user.username}</p>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all" />
+                  </div>
+                ))
+              ) : (
+                <div className="py-12 text-center">
+                  <p className="text-xs text-zinc-500 font-mono">No one in this list yet.</p>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
 
     </div>
   );

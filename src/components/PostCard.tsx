@@ -22,6 +22,7 @@ interface PostCardProps {
   adminPassword?: string;
   onRepost?: (post: Post) => void;
   onOpenPassport?: (userId: string) => void;
+  onHashtagClick?: (hashtag: string) => void;
 }
 
 export default function PostCard({
@@ -34,6 +35,7 @@ export default function PostCard({
   adminPassword,
   onRepost,
   onOpenPassport,
+  onHashtagClick,
 }: PostCardProps) {
   const [pState, setPState] = useState<Post>(postProp);
 
@@ -398,9 +400,9 @@ export default function PostCard({
 
   const [isFullscreenImageOpen, setIsFullscreenImageOpen] = useState(false);
 
-  // Parse @mentions and URLs with FormattedText component
+  // Parse @mentions, URLs, and hashtags with FormattedText component
   const renderContentWithMentions = (text: string) => {
-    return <FormattedText text={text} onOpenUserProfile={onOpenUserProfile} />;
+    return <FormattedText text={text} onOpenUserProfile={onOpenUserProfile} onHashtagClick={onHashtagClick} />;
   };
 
   const handleCardClick = (e: React.MouseEvent) => {
